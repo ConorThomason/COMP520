@@ -31,6 +31,7 @@ public class Parser {
             parseClassDeclaration();
         }
         accept(TokenKind.EOT);
+        System.exit(1);
         return;
     }
 
@@ -65,7 +66,7 @@ public class Parser {
         }
         accept(TokenKind.RPAREN);
         accept(TokenKind.LCURLY);
-        while(token.kind != TokenKind.RCURLY){
+        while (token.kind != TokenKind.RCURLY) {
             parseStatement();
         }
         accept(TokenKind.RCURLY);
@@ -73,75 +74,14 @@ public class Parser {
     }
 
     private void parseStatement() {
-        if (token.kind == TokenKind.LCURLY) { //Initial Statement declaration section
-            acceptIt();
-            parseStatement();
-            accept(TokenKind.RCURLY);
-        } else if (token.kind == TokenKind.RETURN) { //Return section
-            acceptIt();
-            if (token.kind != TokenKind.SEMICOL) {
-                parseExpression();
-                accept(TokenKind.SEMICOL);
-            }
-        } else if (token.kind == TokenKind.IF) { // If/Else section
-            acceptIt();
-            accept(TokenKind.LPAREN);
-            parseExpression();
-            accept(TokenKind.RPAREN);
-            parseStatement();
-            if (token.kind == TokenKind.ELSE) {
-                acceptIt();
-                parseStatement();
-            }
-            return;
-        } else if (token.kind == TokenKind.WHILE) { //While section
-            acceptIt();
-            accept(TokenKind.LPAREN);
-            parseExpression();
-            accept(TokenKind.RPAREN);
-            parseStatement();
-            return;
-        } else if (token.kind == TokenKind.INT || token.kind == TokenKind.BOOLEAN) {
-            parseType();
-        } else if (token.kind == TokenKind.THIS){
-            parseReference();
-        } else if (token.kind == TokenKind.ID){
-            acceptIt();
-            if (token.kind == TokenKind.PERIOD){ //Partial parsing of Reference
-                acceptIt();
-                accept(TokenKind.ID);
-                if (token.kind == TokenKind.EQUALS){
-                    acceptIt();
-                    parseExpression();
-                }
-                else if (token.kind == TokenKind.LSQUARE){
-                    acceptIt();
-                    parseExpression();
-                    accept(TokenKind.RSQUARE);
-                    accept(TokenKind.EQUALS);
-                    parseExpression();
-                    accept(TokenKind.SEMICOL);
-                }
-                else{
-                    accept(TokenKind.LPAREN);
-                    if (token.kind != TokenKind.RPAREN){
-                        parseArgumentList();
-                    }
-                    accept(TokenKind.RPAREN);
-                    accept(TokenKind.SEMICOL);
-                }
-                return;
-            }
-            else{ //Partial parsing of Type
-                accept(TokenKind.LSQUARE);
-                accept(TokenKind.RSQUARE);
-                accept(TokenKind.ID);
-                accept(TokenKind.EQUALS);
-                parseExpression();
-                accept(TokenKind.SEMICOL);
-                return;
-            }
+    }
+
+    private void parseRepeatRef() {
+        if (token.kind == TokenKind.ID) {
+            parseRepeatRef();
         }
+        accept(TokenKind.PERIOD);
+        return;
     }
 
     private void parseExpression() {
@@ -157,22 +97,8 @@ Expression ::=
 | num | true | false
 | new ( id () | int [ Expression ] | id [ Expression ] )
          */
-        if (token.kind != TokenKind.NUM || token.kind != TokenKind.TRUE || token.kind != TokenKind.FALSE) {
-            parseReference(); //Only reference section
-            if (token.kind == TokenKind.LSQUARE) { //Reference into Square Expression section
-                accept(TokenKind.RSQUARE);
-                parseExpression();
-                accept(TokenKind.RSQUARE);
-                return;
-            } else { //Argument list section
-                accept(TokenKind.LPAREN);
-                if (token.kind != TokenKind.RPAREN) {
-                    parseArgumentList();
-                }
-                accept(TokenKind.RPAREN);
-                return;
-            }
-        } else if (token.kind == TokenKind.UNOP) { //unop section
+        if (token.kind.asSimple() == TokenKind.UNOP || token.kind == TokenKind.MINUS ||
+                token.kind == TokenKind.EXCLAMATION) { //unop section
             acceptIt();
             parseExpression();
             return;
@@ -188,6 +114,7 @@ Expression ::=
         } else if (token.kind == TokenKind.NEW) { //new section
             acceptIt();
             if (token.kind == TokenKind.ID) { //Accept id() for new
+                acceptIt();
                 if (token.kind == TokenKind.LPAREN) {
                     acceptIt();
                     accept(TokenKind.RPAREN);
@@ -205,31 +132,55 @@ Expression ::=
                 accept(TokenKind.RSQUARE);
                 return;
             }
+        } else if (token.kind != TokenKind.NUM || token.kind != TokenKind.TRUE || token.kind != TokenKind.FALSE) {
+            parseReference(); //Only reference section
+            if (token.kind == TokenKind.LSQUARE) { //Reference into Square Expression section
+                accept(TokenKind.RSQUARE);
+                parseExpression();
+                accept(TokenKind.RSQUARE);
+                return;
+            } else { //Argument list section
+                accept(TokenKind.LPAREN);
+                if (token.kind != TokenKind.RPAREN) {
+                    parseArgumentList();
+                }
+                accept(TokenKind.RPAREN);
+                return;
+            }
         } else {
             parseExpression();
+            accept(TokenKind.BINOP);
             accept(TokenKind.BINOP);
             parseExpression();
             return;
         }
+
     }
 
     private void parseArgumentList() {
         parseExpression();
-        if (token.kind == TokenKind.COMMA) {
+        while (token.kind == TokenKind.COMMA) {
+            acceptIt();
             parseExpression();
         }
     }
 
+    //Reference -> id Reference' | this Reference'
     private void parseReference() {
-        if (token.kind == TokenKind.ID || token.kind == TokenKind.THIS) {
-            acceptIt();
-            return;
-        } else {
-            parseReference();
-        }
-        accept(TokenKind.PERIOD);
-        accept(TokenKind.ID);
+        acceptIt(); //id or this, doesn't matter as far as I can tell
+        parseReferencePrime();
         return;
+    }
+
+    //Reference' -> . id Reference' | EPSILON
+    private void parseReferencePrime() {
+        if (token.kind == TokenKind.PERIOD) {
+            accept(TokenKind.PERIOD);
+            accept(TokenKind.ID);
+            parseReferencePrime();
+        } else {
+            return;
+        }
     }
 
     private void parseParameterList() {
@@ -281,7 +232,7 @@ Expression ::=
     /* Verify that the current token in inp0ut matches expected token and advance to next token
      */
     private void accept(TokenKind expectedTokenKind) throws SyntaxError {
-        if (token.kind == expectedTokenKind) {
+        if (token.kind == expectedTokenKind || token.kind.asSimple() == expectedTokenKind) {
             if (trace)
                 pTrace();
             token = scanner.scan();
