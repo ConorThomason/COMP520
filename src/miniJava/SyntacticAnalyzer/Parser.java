@@ -24,7 +24,6 @@ public class Parser {
             parseProgram();
         } catch (SyntaxError e) {
         }
-        ;
     }
 
     private void parseProgram() throws SyntaxError {
@@ -32,6 +31,7 @@ public class Parser {
             parseClassDeclaration();
         }
         accept(TokenKind.EOT);
+        return;
     }
 
     private void parseClassDeclaration() {
@@ -65,18 +65,83 @@ public class Parser {
         }
         accept(TokenKind.RPAREN);
         accept(TokenKind.LCURLY);
-        parseStatement();
+        while(token.kind != TokenKind.RCURLY){
+            parseStatement();
+        }
         accept(TokenKind.RCURLY);
         return;
     }
 
     private void parseStatement() {
-        accept(TokenKind.LCURLY);
-        //First possibility - Type id = Expression ;
-        parseType();
-        accept(TokenKind.ID);
-        accept(TokenKind.EQUALS);
-        parseExpression();
+        if (token.kind == TokenKind.LCURLY) { //Initial Statement declaration section
+            acceptIt();
+            parseStatement();
+            accept(TokenKind.RCURLY);
+        } else if (token.kind == TokenKind.RETURN) { //Return section
+            acceptIt();
+            if (token.kind != TokenKind.SEMICOL) {
+                parseExpression();
+                accept(TokenKind.SEMICOL);
+            }
+        } else if (token.kind == TokenKind.IF) { // If/Else section
+            acceptIt();
+            accept(TokenKind.LPAREN);
+            parseExpression();
+            accept(TokenKind.RPAREN);
+            parseStatement();
+            if (token.kind == TokenKind.ELSE) {
+                acceptIt();
+                parseStatement();
+            }
+            return;
+        } else if (token.kind == TokenKind.WHILE) { //While section
+            acceptIt();
+            accept(TokenKind.LPAREN);
+            parseExpression();
+            accept(TokenKind.RPAREN);
+            parseStatement();
+            return;
+        } else if (token.kind == TokenKind.INT || token.kind == TokenKind.BOOLEAN) {
+            parseType();
+        } else if (token.kind == TokenKind.THIS){
+            parseReference();
+        } else if (token.kind == TokenKind.ID){
+            acceptIt();
+            if (token.kind == TokenKind.PERIOD){ //Partial parsing of Reference
+                acceptIt();
+                accept(TokenKind.ID);
+                if (token.kind == TokenKind.EQUALS){
+                    acceptIt();
+                    parseExpression();
+                }
+                else if (token.kind == TokenKind.LSQUARE){
+                    acceptIt();
+                    parseExpression();
+                    accept(TokenKind.RSQUARE);
+                    accept(TokenKind.EQUALS);
+                    parseExpression();
+                    accept(TokenKind.SEMICOL);
+                }
+                else{
+                    accept(TokenKind.LPAREN);
+                    if (token.kind != TokenKind.RPAREN){
+                        parseArgumentList();
+                    }
+                    accept(TokenKind.RPAREN);
+                    accept(TokenKind.SEMICOL);
+                }
+                return;
+            }
+            else{ //Partial parsing of Type
+                accept(TokenKind.LSQUARE);
+                accept(TokenKind.RSQUARE);
+                accept(TokenKind.ID);
+                accept(TokenKind.EQUALS);
+                parseExpression();
+                accept(TokenKind.SEMICOL);
+                return;
+            }
+        }
     }
 
     private void parseExpression() {
@@ -120,29 +185,27 @@ Expression ::=
                 token.kind == TokenKind.FALSE) { //num/true/false section
             acceptIt();
             return;
-        } else if (token.kind == TokenKind.NEW){ //new section
+        } else if (token.kind == TokenKind.NEW) { //new section
             acceptIt();
-            if (token.kind == TokenKind.ID){ //Accept id() for new
-                if (token.kind == TokenKind.LPAREN){
+            if (token.kind == TokenKind.ID) { //Accept id() for new
+                if (token.kind == TokenKind.LPAREN) {
                     acceptIt();
                     accept(TokenKind.RPAREN);
                     return;
-                }
-                else { //Accept id [ Expression ] for new
+                } else { //Accept id [ Expression ] for new
                     accept(TokenKind.LSQUARE);
                     parseExpression();
                     accept(TokenKind.RSQUARE);
                     return;
                 }
-            }
-            else{ // Accept int [ Expression ] for new
+            } else { // Accept int [ Expression ] for new
                 accept(TokenKind.INT);
                 accept(TokenKind.LSQUARE);
                 parseExpression();
                 accept(TokenKind.RSQUARE);
                 return;
             }
-        } else{
+        } else {
             parseExpression();
             accept(TokenKind.BINOP);
             parseExpression();
