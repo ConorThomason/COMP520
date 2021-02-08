@@ -152,10 +152,8 @@ public class Scanner {
                         skipIt();
                         continue;
                     } else {
+                        leadingZero = false;
                         takeIt();
-                        if (currentChar != 0) {
-                            leadingZero = false;
-                        }
                     }
                 }
                 return (TokenKind.NUM);

@@ -17,8 +17,6 @@ public class Compiler {
         ErrorReporter errorReporter = new ErrorReporter();
         Scanner scanner = new Scanner(inputStream, errorReporter);
         Parser parser = new Parser(scanner, errorReporter);
-        while (true){
-            parser.parse();
-        }
+        parser.parse();
     }
 }

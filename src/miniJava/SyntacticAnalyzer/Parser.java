@@ -74,14 +74,117 @@ public class Parser {
     }
 
     private void parseStatement() {
+        if (token.kind == TokenKind.LCURLY) { //LCURLY for block begin
+            acceptIt();
+            while (token.kind != TokenKind.RCURLY) {
+                parseStatement();
+            }
+            accept(TokenKind.RCURLY);
+            return;
+        } else if (token.kind == TokenKind.RETURN) {
+            acceptIt();
+            parseExpression();
+            accept(TokenKind.SEMICOL);
+            return;
+        } else if (token.kind == TokenKind.IF) {
+            acceptIt();
+            accept(TokenKind.LPAREN);
+            parseExpression();
+            accept(TokenKind.RPAREN);
+            parseStatement();
+            if (token.kind == TokenKind.ELSE) {
+                acceptIt();
+                parseStatement();
+            }
+            return;
+        } else if (token.kind == TokenKind.WHILE) {
+            acceptIt();
+            accept(TokenKind.LPAREN);
+            parseExpression();
+            accept(TokenKind.RPAREN);
+            parseStatement();
+            return;
+        } else if (token.kind == TokenKind.THIS) {
+            //We know it is reference
+            parseReference();
+            if (token.kind == TokenKind.EQUALS) {
+                acceptIt();
+                parseExpression();
+                accept(TokenKind.SEMICOL);
+                return;
+            } else if (token.kind == TokenKind.LSQUARE) {
+                acceptIt();
+                parseExpression();
+                accept(TokenKind.RSQUARE);
+                accept(TokenKind.EQUALS);
+                parseExpression();
+                return;
+            } else if (token.kind == TokenKind.LPAREN) {
+                acceptIt();
+                boolean check = checkIfArgumentList();
+                if (check) {
+                    parseArgumentList();
+                }
+                accept(TokenKind.RPAREN);
+                accept(TokenKind.SEMICOL);
+                return;
+
+            }
+        } else if (token.kind == TokenKind.INT || token.kind == TokenKind.BOOLEAN) {
+            //We know it is type
+            parseType();
+            accept(TokenKind.EQUALS);
+            parseExpression();
+            accept(TokenKind.SEMICOL);
+            return;
+
+        } else {
+            String fullTokens = "";
+            do {
+                if (token.kind == TokenKind.PERIOD) {
+                    accept(TokenKind.PERIOD);
+                }
+                if (token.kind == TokenKind.ID){
+                    accept(TokenKind.ID);
+                }
+            } while (token.kind == TokenKind.PERIOD);
+            /* Issue is that you are assuming it will always be an ID, but in the case of
+            Reference, you need to parse the periods inside the parseReference method.
+            By assuming it is an ID, you are cutting that out, essentially breaking the chain
+            that can handle periods, and throwing everything off.
+             */
+            if (token.kind == TokenKind.ID) { //If this is true, it has to be the Type Line.
+                acceptIt();
+                accept(TokenKind.EQUALS);
+                parseExpression();
+                accept(TokenKind.SEMICOL);
+                return;
+            } else if (token.kind == TokenKind.EQUALS) { //Otherwise it has to be one of the Reference lines
+                acceptIt();
+                parseExpression();
+                accept(TokenKind.SEMICOL);
+                return;
+            } else if (token.kind == TokenKind.LSQUARE) {
+                acceptIt();
+                parseExpression();
+                accept(TokenKind.RSQUARE);
+                accept(TokenKind.EQUALS);
+                parseExpression();
+                accept(TokenKind.SEMICOL);
+                return;
+            } else if (token.kind == TokenKind.LPAREN) {
+                parseArgumentList();
+                accept(TokenKind.SEMICOL);
+                return;
+            }
+        }
     }
 
-    private void parseRepeatRef() {
-        if (token.kind == TokenKind.ID) {
-            parseRepeatRef();
-        }
-        accept(TokenKind.PERIOD);
-        return;
+    private boolean checkIfArgumentList() {
+        TokenKind kind = token.kind;
+        return kind == TokenKind.THIS || kind == TokenKind.ID || kind == TokenKind.EXCLAMATION ||
+                kind == TokenKind.MINUS || kind == TokenKind.LPAREN || kind == TokenKind.NUM ||
+                kind == TokenKind.TRUE || kind == TokenKind.FALSE || kind == TokenKind.NEW;
     }
 
     private void parseExpression() {
@@ -105,6 +208,9 @@ Expression ::=
         } else if (token.kind == TokenKind.LPAREN) { //Parentheses Expression section
             acceptIt();
             parseExpression();
+            if (token.kind == TokenKind.PERIOD){
+                parseExpression();
+            }
             accept(TokenKind.RPAREN);
             return;
         } else if (token.kind == TokenKind.NUM || token.kind == TokenKind.TRUE ||
@@ -118,7 +224,6 @@ Expression ::=
                 if (token.kind == TokenKind.LPAREN) {
                     acceptIt();
                     accept(TokenKind.RPAREN);
-                    return;
                 } else { //Accept id [ Expression ] for new
                     accept(TokenKind.LSQUARE);
                     parseExpression();
@@ -157,29 +262,27 @@ Expression ::=
 
     }
 
-    private void parseArgumentList() {
-        parseExpression();
-        while (token.kind == TokenKind.COMMA) {
-            acceptIt();
-            parseExpression();
-        }
-    }
-
     //Reference -> id Reference' | this Reference'
     private void parseReference() {
-        acceptIt(); //id or this, doesn't matter as far as I can tell
-        parseReferencePrime();
+        if (token.kind == TokenKind.THIS || token.kind == TokenKind.ID) {
+            acceptIt();
+        }
+//        if (token.kind == TokenKind.LPAREN){
+//            acceptIt();
+//            accept(TokenKind.RPAREN);
+//        }
+        while (token.kind == TokenKind.PERIOD) {
+            acceptIt();
+            accept(TokenKind.ID);
+        }
         return;
     }
 
-    //Reference' -> . id Reference' | EPSILON
-    private void parseReferencePrime() {
-        if (token.kind == TokenKind.PERIOD) {
-            accept(TokenKind.PERIOD);
-            accept(TokenKind.ID);
-            parseReferencePrime();
-        } else {
-            return;
+    private void parseArgumentList() {
+        parseExpression();
+        if (token.kind == TokenKind.COMMA || token.kind == TokenKind.PERIOD){
+            acceptIt();
+            parseArgumentList();
         }
     }
 
