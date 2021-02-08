@@ -58,9 +58,14 @@ public class Parser {
         }
         accept(TokenKind.ID);
         if (!methodDeclaration) {
-            return;
+            if (token.kind != TokenKind.LPAREN) {
+                return;
+            } else {
+                accept(TokenKind.LPAREN);
+            }
+        } else {
+            accept(TokenKind.LPAREN);
         }
-        accept(TokenKind.LPAREN);
         if (token.kind != TokenKind.RPAREN) {
             parseParameterList();
         }
@@ -133,7 +138,9 @@ public class Parser {
         } else if (token.kind == TokenKind.INT || token.kind == TokenKind.BOOLEAN) {
             //We know it is type
             parseType();
-            accept(TokenKind.EQUALS);
+            if (token.kind == TokenKind.EQUALS){
+                acceptIt();
+            }
             parseExpression();
             accept(TokenKind.SEMICOL);
             return;
@@ -144,7 +151,7 @@ public class Parser {
                 if (token.kind == TokenKind.PERIOD) {
                     accept(TokenKind.PERIOD);
                 }
-                if (token.kind == TokenKind.ID){
+                if (token.kind == TokenKind.ID) {
                     accept(TokenKind.ID);
                 }
             } while (token.kind == TokenKind.PERIOD);
@@ -208,7 +215,7 @@ Expression ::=
         } else if (token.kind == TokenKind.LPAREN) { //Parentheses Expression section
             acceptIt();
             parseExpression();
-            if (token.kind == TokenKind.PERIOD){
+            if (token.kind == TokenKind.PERIOD) {
                 parseExpression();
             }
             accept(TokenKind.RPAREN);
@@ -244,7 +251,7 @@ Expression ::=
                 parseExpression();
                 accept(TokenKind.RSQUARE);
                 return;
-            } else { //Argument list section
+            } else if (token.kind == TokenKind.LPAREN) { //Argument list section
                 accept(TokenKind.LPAREN);
                 if (token.kind != TokenKind.RPAREN) {
                     parseArgumentList();
@@ -280,7 +287,7 @@ Expression ::=
 
     private void parseArgumentList() {
         parseExpression();
-        if (token.kind == TokenKind.COMMA || token.kind == TokenKind.PERIOD){
+        if (token.kind == TokenKind.COMMA || token.kind == TokenKind.PERIOD) {
             acceptIt();
             parseArgumentList();
         }
