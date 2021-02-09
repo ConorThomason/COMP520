@@ -84,7 +84,9 @@ public class Parser {
             return;
         } else if (token.kind == TokenKind.RETURN) {
             acceptIt();
-            parseExpression();
+            if (token.kind != TokenKind.SEMICOL) {
+                parseExpression();
+            }
             accept(TokenKind.SEMICOL);
             return;
         } else if (token.kind == TokenKind.IF || token.kind == TokenKind.ELSE) {
@@ -132,6 +134,7 @@ public class Parser {
                 accept(TokenKind.RSQUARE);
                 accept(TokenKind.EQUALS);
                 parseExpression();
+                accept(TokenKind.SEMICOL);
                 return;
             } else if (token.kind == TokenKind.LPAREN) {
                 acceptIt();
@@ -164,13 +167,18 @@ public class Parser {
             if (token.kind == TokenKind.EQUALS || token.kind == TokenKind.LSQUARE || token.kind == TokenKind.LPAREN){
                 if (token.kind == TokenKind.EQUALS){
                     acceptIt();
-                    parseExpression();
+                    while (token.kind != TokenKind.SEMICOL) {
+                        parseExpression();
+                    }
                     accept(TokenKind.SEMICOL);
                 }
                 else if (token.kind == TokenKind.LSQUARE){
                     acceptIt();
                     parseExpression();
                     accept(TokenKind.RSQUARE);
+                    accept(TokenKind.EQUALS);
+                    parseExpression();
+                    accept(TokenKind.SEMICOL);
                 }
                 else if (token.kind == TokenKind.LPAREN){
                     acceptIt();
@@ -178,6 +186,7 @@ public class Parser {
                         parseArgumentList();
                     }
                     accept(TokenKind.RPAREN);
+                    accept(TokenKind.SEMICOL);
                 }
             }
             //Otherwise it is type
@@ -259,7 +268,7 @@ Expression ::=
             }
             parseReference(); //Only reference section
             if (token.kind == TokenKind.LSQUARE) { //Reference into Square Expression section
-                accept(TokenKind.RSQUARE);
+                accept(TokenKind.LSQUARE);
                 parseExpression();
                 accept(TokenKind.RSQUARE);
             } else if (token.kind == TokenKind.LPAREN) { //Argument list section

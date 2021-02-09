@@ -50,8 +50,8 @@ public class Scanner {
             }
         }
         String spelling = currentSpelling.toString();
-        System.out.println(spelling);
-        System.out.println(kind);
+//        System.out.println(spelling);
+//        System.out.println(kind);
         return new Token(kind, spelling);
     }
 
@@ -198,6 +198,9 @@ public class Scanner {
             case ';':
                 takeIt();
                 return (TokenKind.SEMICOL);
+            case ',':
+                takeIt();
+                return (TokenKind.COMMA);
             case '\t':
             case '\r':
             case '\n':
