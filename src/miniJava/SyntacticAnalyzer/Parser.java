@@ -1,5 +1,5 @@
 package miniJava.SyntacticAnalyzer;
-
+import miniJava.ErrorReporter;
 public class Parser {
 
     private Scanner scanner;

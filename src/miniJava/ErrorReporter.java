@@ -1,4 +1,4 @@
-
+package miniJava;
 
 public class ErrorReporter {
     private int numErrors;

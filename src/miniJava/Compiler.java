@@ -1,8 +1,10 @@
-package miniJava.SyntacticAnalyzer;
+package miniJava;
 
+import miniJava.SyntacticAnalyzer.Parser;
+import miniJava.SyntacticAnalyzer.Scanner;
+
+import miniJava.ErrorReporter;
 import java.io.*;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 
 public class Compiler {
     public static void main(String[] args) throws IOException {

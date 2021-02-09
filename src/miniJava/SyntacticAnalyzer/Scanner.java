@@ -2,7 +2,7 @@ package miniJava.SyntacticAnalyzer;
 
 import java.io.IOException;
 import java.io.InputStream;
-
+import miniJava.ErrorReporter;
 public class Scanner {
     private InputStream inputStream;
     private ErrorReporter reporter;
