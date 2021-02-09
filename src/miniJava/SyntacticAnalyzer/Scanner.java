@@ -22,18 +22,56 @@ public class Scanner {
 //            System.out.println("Skipping whitespace");
             skipIt();
         }
-
         //token starts, get spelling and identify token kind
         currentSpelling = new StringBuilder();
         TokenKind kind = scanToken();
-//        System.out.println(kind.toString());
+        while (kind == TokenKind.COMMENT || kind == TokenKind.BLOCKCOMMENT) {
+            while (currentChar != '\n' && currentChar != '\r' && !eot) {
+                skipIt();
+            }
+            skipIt();
+            kind = scanToken();
+            if (kind != TokenKind.COMMENT && kind != TokenKind.BLOCKCOMMENT)
+                break;
+            if (kind == TokenKind.COMMENT)
+                continue;
+            boolean foundEnd = false;
+            while(!foundEnd) {
+                boolean foundStar = false;
+                while (!foundStar){
+                    if (currentChar == '*'){
+                        foundStar = true;
+                    }
+                    skipIt();
+                    if (currentChar == '/'){
+                        foundEnd = true;
+                    }
+                }
+            }
+        }
         String spelling = currentSpelling.toString();
         System.out.println(spelling);
         System.out.println(kind);
         return new Token(kind, spelling);
     }
 
-
+    public boolean isNumeric(char c){
+        switch(c){
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+            case '8':
+            case '9':
+                return true;
+            default:
+                return false;
+        }
+    }
     /*Determine token kind*/
     public TokenKind scanToken() {
         if (eot) {
@@ -41,8 +79,15 @@ public class Scanner {
         }
         boolean idFound = false;
         while (isAlphabetic(currentChar) || currentChar == '_') {
-            takeIt();
-            idFound = true;
+            if (isAlphabetic(currentChar) || currentChar == '_'){
+                takeIt();
+                idFound = true;
+            }
+            if (idFound && isNumeric(currentChar)){
+                while (isAlphabetic(currentChar) || currentChar == '_' || isNumeric(currentChar)){
+                    takeIt();
+                }
+            }
         }
         if (idFound) {
             switch(currentSpelling.toString()){
@@ -80,6 +125,7 @@ public class Scanner {
             return TokenKind.ID;
         }
         char prevChar;
+
         //Scan token
         switch (currentChar) {
             case '+':
@@ -87,9 +133,25 @@ public class Scanner {
                 return (TokenKind.PLUS);
             case '*':
                 takeIt();
+                if (currentChar == '/'){
+                    return (TokenKind.BLOCKCOMMENTEND);
+                }
                 return (TokenKind.TIMES);
             case '/':
                 takeIt();
+                if (currentChar == '/'){
+                    skipIt();
+                    currentSpelling.deleteCharAt(currentSpelling.length() - 1);
+                    return (TokenKind.COMMENT);
+                }
+                else if (currentChar == '*'){
+                    skipIt();
+                    currentSpelling.deleteCharAt(currentSpelling.length() - 1);
+                    return (TokenKind.BLOCKCOMMENT);
+                }
+                else{
+                    takeIt();
+                }
                 return (TokenKind.DIVIDE);
             case '=':
                 takeIt();
@@ -136,6 +198,12 @@ public class Scanner {
             case ';':
                 takeIt();
                 return (TokenKind.SEMICOL);
+            case '\t':
+            case '\r':
+            case '\n':
+            case ' ':
+                skipIt();
+                return scanToken();
             case '0':
             case '1':
             case '2':
