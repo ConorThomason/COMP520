@@ -1,5 +1,14 @@
 package miniJava.SyntacticAnalyzer;
+
+import miniJava.AbstractSyntaxTrees.ClassDecl;
+import miniJava.AbstractSyntaxTrees.*;
+import miniJava.AbstractSyntaxTrees.ClassDeclList;
+import miniJava.AbstractSyntaxTrees.Package;
 import miniJava.ErrorReporter;
+import sun.java2d.pipe.SpanShapeRenderer;
+
+import java.lang.reflect.Parameter;
+
 public class Parser {
 
     private Scanner scanner;
@@ -18,186 +27,292 @@ public class Parser {
         private static final long serialVersionUID = 1L;
     }
 
-    public void parse() {
+    public AST parse() {
         token = scanner.scan();
         try {
-            parseProgram();
+            return parsePackage();
         } catch (SyntaxError e) {
+            return null;
         }
     }
 
-    private void parseProgram() throws SyntaxError {
+    private Package parsePackage() throws SyntaxError {
+        Package packageAST = null;
+
+        ClassDeclList classDeclListAST = new ClassDeclList();
+
         while (token.kind == TokenKind.CLASS) {
-            parseClassDeclaration();
+            ClassDecl classDeclAST = parseClassDeclaration();
+            classDeclListAST.add(classDeclAST);
+        }
+        packageAST = new Package(classDeclListAST, null);
+        if (token.kind != TokenKind.EOT) {
+            parseError("Package parse error");
         }
         accept(TokenKind.EOT);
-        System.exit(1);
-        return;
+        return packageAST;
     }
 
-    private void parseClassDeclaration() {
+    private ClassDecl parseClassDeclaration() {
+        ClassDecl classDeclAST = null;
+        FieldDeclList fieldList = new FieldDeclList();
+        MethodDeclList methodList = new MethodDeclList();
+        String className;
         accept(TokenKind.CLASS);
+        className = token.spelling;
+        Identifier idAST = new Identifier(token);
         accept(TokenKind.ID);
+
         accept(TokenKind.LCURLY);
+        classDeclAST = parseFieldMethodDeclaration(fieldList, methodList, className);
+        return classDeclAST;
+    }
+
+    //single ::= (Type | Void) id ( ; | ((param?) {statement*})
+    private ClassDecl parseFieldMethodDeclaration(FieldDeclList fieldList, MethodDeclList methodList, String className) {
+
+        FieldDecl fieldDecl = null;
+        MethodDecl methodDecl = null;
         while (token.kind != TokenKind.RCURLY) {
-            parseFieldMethodDeclaration();
+            Boolean isPrivate = null;
+            if (token.kind == TokenKind.PUBLIC || token.kind == TokenKind.PRIVATE) isPrivate = parseVisibility();
+            Boolean isStatic = null;
+            if (token.kind == TokenKind.STATIC){
+                isStatic = parseAccess();
+            }
+
+            TypeDenoter typeDenoter = null;
+            String name;
+            ParameterDeclList params = new ParameterDeclList();
+            StatementList statementList = new StatementList();
+            if (token.kind == TokenKind.VOID) {
+                typeDenoter = new BaseType(TypeKind.VOID, null);
+                acceptIt();
+                name = token.spelling;
+                accept(TokenKind.ID);
+                accept(TokenKind.LPAREN);
+                if (token.kind != TokenKind.RPAREN) {
+                    params = parseParameterList();
+                }
+                accept(TokenKind.RPAREN);
+                accept(TokenKind.LCURLY);
+                while (token.kind != TokenKind.RCURLY) {
+                    statementList.add(parseStatement());
+                }
+                accept(TokenKind.RCURLY);
+                MemberDecl memberInstance = new FieldDecl((isPrivate != null) ? isPrivate : false,
+                        (isStatic != null) ? isStatic : false, typeDenoter, name, null);
+                MethodDecl methodInstance = new MethodDecl(memberInstance, params, statementList, null);
+                methodList.add(methodInstance);
+            } else {
+                typeDenoter = parseType();
+                name = token.spelling;
+                accept(TokenKind.ID);
+                if (token.kind == TokenKind.SEMICOL) {
+                    //BaseType here is iffy, could also be ClassType, if autograder complains, check this
+                    FieldDecl fieldInstance = new FieldDecl((isPrivate != null) ? isPrivate : false,
+                            (isStatic != null) ? isStatic : false, typeDenoter,
+                            name, null);
+                    fieldList.add(fieldInstance);
+                    acceptIt();
+                } else if (token.kind == TokenKind.LPAREN) {
+                    acceptIt();
+                    if (token.kind != TokenKind.RPAREN) {
+                        params = parseParameterList();
+                    }
+                    accept(TokenKind.RPAREN);
+                    accept(TokenKind.LCURLY);
+                    while (token.kind != TokenKind.RCURLY) {
+                        statementList.add(parseStatement());
+                    }
+                    MemberDecl memberInstance = new FieldDecl((isPrivate != null) ? isPrivate : false,
+                            (isStatic != null) ? isStatic : false, typeDenoter, name, null);
+                    MethodDecl methodInstance = new MethodDecl(memberInstance, params, statementList, null);
+                    methodList.add(methodInstance);
+                    acceptIt();
+                } else {
+                    parseError("Field/Method declaration error");
+                }
+            }
         }
-        accept(TokenKind.RCURLY);
-        return;
+        acceptIt();
+        return new ClassDecl(className, fieldList, methodList, null);
+
     }
 
-    private void parseFieldMethodDeclaration() {
-        boolean methodDeclaration = false;
-        parseVisibility();
-        parseAccess();
-        if (token.kind == TokenKind.VOID) {
-            acceptIt();
-            methodDeclaration = true;
-        } else {
-            parseType();
+    private boolean referenceCheck() {
+        if (token.kind == TokenKind.ID || token.kind == TokenKind.THIS) {
+            return true;
         }
-        accept(TokenKind.ID);
-        if (token.kind == TokenKind.SEMICOL) //We now know it is a field declaration
-            acceptIt();
-        else { //Otherwise it has to be a method declaration
-            accept(TokenKind.LPAREN);
-            if (token.kind != TokenKind.RPAREN) {
-                parseParameterList();
-            }
-            accept(TokenKind.RPAREN); //Parameter list complete
-            accept(TokenKind.LCURLY); //Begin statement
-            while(token.kind != TokenKind.RCURLY){
-                parseStatement();
-            }
-            accept(TokenKind.RCURLY);
-        }
-        return;
+        return false;
     }
 
-    private void parseStatement() {
-        if (token.kind == TokenKind.LCURLY) { //LCURLY for block begin
+    private Statement parseStatement() {
+        //Reference Section
+        if (token.kind == TokenKind.LCURLY) {
             acceptIt();
+            StatementList statementList = new StatementList();
             while (token.kind != TokenKind.RCURLY) {
-                parseStatement();
+                statementList.add(parseStatement());
             }
             accept(TokenKind.RCURLY);
-            return;
+            return new BlockStmt(statementList, null);
+        } else if (token.kind == TokenKind.BOOLEAN) {
+            acceptIt();
+            VarDecl varBool = new VarDecl(new BaseType(TypeKind.BOOLEAN, null), token.spelling, null);
+            accept(TokenKind.ID);
+            accept(TokenKind.EQUALS);
+            Expression expression = parseExpression();
+            accept(TokenKind.SEMICOL);
+            return new VarDeclStmt(varBool, expression, null);
         } else if (token.kind == TokenKind.RETURN) {
             acceptIt();
+            Expression expression = null;
             if (token.kind != TokenKind.SEMICOL) {
-                parseExpression();
+                expression = parseExpression();
             }
             accept(TokenKind.SEMICOL);
-            return;
-        } else if (token.kind == TokenKind.IF || token.kind == TokenKind.ELSE) {
-            if (token.kind == TokenKind.IF) {
-                acceptIt();
-                accept(TokenKind.LPAREN);
-                parseExpression();
-                accept(TokenKind.RPAREN);
-                parseStatement();
-            } else {
-                acceptIt();
-                accept(TokenKind.LPAREN);
-                parseStatement();
-                accept(TokenKind.RPAREN);
-            }
-            if (token.kind == TokenKind.SEMICOL) {
-                acceptIt();
-            }
+            return new ReturnStmt(expression, null);
+        } else if (token.kind == TokenKind.IF) {
+            acceptIt();
+            accept(TokenKind.LPAREN);
+            Expression expression = parseExpression();
+            accept(TokenKind.RPAREN);
+            Statement statement = parseStatement();
             if (token.kind == TokenKind.ELSE) {
                 acceptIt();
-                parseStatement();
-            } else if (token.kind == TokenKind.RPAREN) {
-                acceptIt();
+                Statement statement2 = parseStatement();
+                return new IfStmt(expression, statement, statement2, null);
             }
-            return;
+            return new IfStmt(expression, statement, null);
         } else if (token.kind == TokenKind.WHILE) {
             acceptIt();
             accept(TokenKind.LPAREN);
-            parseExpression();
+            Expression expression = parseExpression();
             accept(TokenKind.RPAREN);
-            parseStatement();
-            return;
-        }
-        if (token.kind == TokenKind.THIS) {
-            //We know it is reference
-            parseReference();
+            Statement statement = parseStatement();
+            return new WhileStmt(expression, statement, null);
+        } else if (token.kind == TokenKind.THIS) {
+            acceptIt();
+            Reference reference = new ThisRef(null);
+            while (token.kind == TokenKind.PERIOD) {
+                acceptIt();
+                reference = new QualRef(reference, new Identifier(token), null);
+                accept(TokenKind.ID);
+            }
             if (token.kind == TokenKind.EQUALS) {
                 acceptIt();
-                parseExpression();
+                Expression expression = parseExpression();
                 accept(TokenKind.SEMICOL);
-                return;
-            } else if (token.kind == TokenKind.LSQUARE) {
-                acceptIt();
-                parseExpression();
-                accept(TokenKind.RSQUARE);
-                accept(TokenKind.EQUALS);
-                parseExpression();
-                accept(TokenKind.SEMICOL);
-                return;
+                return new AssignStmt(reference, expression, null);
             } else if (token.kind == TokenKind.LPAREN) {
                 acceptIt();
-                boolean check = checkIfArgumentList();
-                if (check) {
-                    parseArgumentList();
+                ExprList expressionList = new ExprList();
+                if (token.kind != TokenKind.RPAREN) {
+                    expressionList = parseArgumentList();
                 }
                 accept(TokenKind.RPAREN);
                 accept(TokenKind.SEMICOL);
-                return;
-
-            }
-        } else if (token.kind == TokenKind.INT || token.kind == TokenKind.BOOLEAN) {
-            //We know it is type
-            parseType();
-            if (token.kind == TokenKind.EQUALS) {
+                return new CallStmt(reference, expressionList, null);
+            } else if (token.kind == TokenKind.LSQUARE){
                 acceptIt();
+                Expression expression = parseExpression();
+                accept(TokenKind.RSQUARE);
+                accept(TokenKind.EQUALS);
+                Expression expression2 = parseExpression();
+                accept(TokenKind.SEMICOL);
+                return new IxAssignStmt(reference, expression, expression2, null);
             }
-            parseExpression();
-            accept(TokenKind.SEMICOL);
-            return;
-
-        } else if (token.kind == TokenKind.ID){
+            else {
+                parseError("Statement error - this");
+            }
+        } else if (token.kind == TokenKind.INT) {
             acceptIt();
-            while(token.kind == TokenKind.PERIOD){
+            TypeDenoter type = null;
+            if (token.kind == TokenKind.LSQUARE) {
                 acceptIt();
-                accept(TokenKind.ID);
+                accept(TokenKind.RSQUARE);
+                type = new ArrayType(new BaseType(TypeKind.INT, null), null);
+            } else {
+                type = new BaseType(TypeKind.INT, null);
             }
-            //If it is already EQUALS, LSQUARE or LPAREN then it must be Reference
-            if (token.kind == TokenKind.EQUALS || token.kind == TokenKind.LSQUARE || token.kind == TokenKind.LPAREN){
-                if (token.kind == TokenKind.EQUALS){
+            VarDecl var = new VarDecl(type, token.spelling, null);
+            accept(TokenKind.ID);
+            accept(TokenKind.EQUALS);
+            Expression expression = parseExpression();
+            accept(TokenKind.SEMICOL);
+            return new VarDeclStmt(var, expression, null);
+        } else if (token.kind == TokenKind.ID) {
+            Token id = token;
+            acceptIt();
+
+            if (token.kind == TokenKind.ID) {
+                TypeDenoter type = new ClassType(new Identifier(id), null);
+                VarDecl var = new VarDecl(type, token.spelling, null);
+                acceptIt();
+                accept(TokenKind.EQUALS);
+                Expression expression = parseExpression();
+                accept(TokenKind.SEMICOL);
+                return new VarDeclStmt(var, expression, null);
+            } else if (token.kind == TokenKind.LSQUARE) {
+                acceptIt();
+                TypeDenoter type = null;
+                if (token.kind == TokenKind.RSQUARE) {
                     acceptIt();
-                    while (token.kind != TokenKind.SEMICOL) {
-                        parseExpression();
-                    }
-                    accept(TokenKind.SEMICOL);
-                }
-                else if (token.kind == TokenKind.LSQUARE){
-                    acceptIt();
-                    parseExpression();
-                    accept(TokenKind.RSQUARE);
+                    type = new ArrayType(new ClassType(new Identifier(id), null), null);
+                    VarDecl var = new VarDecl(type, token.spelling, null);
+                    accept(TokenKind.ID);
                     accept(TokenKind.EQUALS);
-                    parseExpression();
+                    Expression expression = parseExpression();
                     accept(TokenKind.SEMICOL);
+                    return new VarDeclStmt(var, expression, null);
                 }
-                else if (token.kind == TokenKind.LPAREN){
+                IdRef assignExp = new IdRef(new Identifier(id), null);
+                Expression expression = parseExpression();
+                IxExpr ref = new IxExpr(assignExp, expression, null);
+                accept(TokenKind.RSQUARE);
+                accept(TokenKind.EQUALS);
+                Expression expression1 = parseExpression();
+                accept(TokenKind.SEMICOL);
+                return new IxAssignStmt(assignExp, expression, expression1, null);
+            } else {
+                Reference idRef = new IdRef(new Identifier(id), null);
+                while (token.kind == TokenKind.PERIOD) {
                     acceptIt();
-                    if(token.kind != TokenKind.RPAREN){
-                        parseArgumentList();
+                    idRef = new QualRef(idRef, new Identifier(token), null);
+                    accept(TokenKind.ID);
+                }
+                if (token.kind == TokenKind.EQUALS) {
+                    acceptIt();
+                    Expression expression = parseExpression();
+                    accept(TokenKind.SEMICOL);
+                    return new AssignStmt(idRef, expression, null);
+                } else if (token.kind == TokenKind.LPAREN) {
+                    acceptIt();
+                    ExprList expressionList = new ExprList();
+                    if (token.kind != TokenKind.RPAREN) {
+                        expressionList = parseArgumentList();
                     }
                     accept(TokenKind.RPAREN);
                     accept(TokenKind.SEMICOL);
+                    return new CallStmt(idRef, expressionList, null);
+                } else if (token.kind == TokenKind.LSQUARE){
+                    acceptIt();
+                    Expression expression = parseExpression();
+                    accept(TokenKind.RSQUARE);
+                    accept(TokenKind.EQUALS);
+                    Expression expression2 = parseExpression();
+                    accept(TokenKind.SEMICOL);
+                    return new IxAssignStmt(idRef, expression, expression2, null);
+                }
+                else {
+                    parseError("Statement error - ID");
+                    return null;
                 }
             }
-            //Otherwise it is type
-            else{
-                parseType();
-                accept(TokenKind.ID);
-                accept(TokenKind.EQUALS);
-                parseExpression();
-                accept(TokenKind.SEMICOL);
-            }
         }
+        parseError("Statement error - dropped off end");
+        return null;
     }
 
     private boolean checkIfArgumentList() {
@@ -207,154 +322,294 @@ public class Parser {
                 kind == TokenKind.TRUE || kind == TokenKind.FALSE || kind == TokenKind.NEW;
     }
 
-    private void parseExpression() {
-        //First possibility - Reference
-        /*
-Expression ::=
- Reference
- | Reference [ Expression ]
-| Reference ( ArgumentList? )
-| unop Expression
-| Expression binop Expression
-| ( Expression )
-| num | true | false
-| new ( id () | int [ Expression ] | id [ Expression ] )
-         */
-        if (token.kind.toSimple() == SimpleToken.UNOP || token.kind == TokenKind.MINUS ||
-                token.kind == TokenKind.EXCLAMATION || token.kind == TokenKind.EQUALS) { //unop section
+    //Because of the fact we want to implement precedence, I am forced to divide them up one into another, and call
+    // as the precedence suggests.
+    //...yay?
+    private Expression parseExpression() {
+        return parseOr();
+    }
+
+    private Expression parseOr() {
+        Expression or = parseAnd();
+        while (token.kind == TokenKind.OR) {
+            Token temp = token;
             acceptIt();
-            parseExpression();
-            return;
-        } else if (token.kind == TokenKind.LPAREN) { //Parentheses Expression section
+            or = new BinaryExpr(new Operator(temp), or, parseAnd(), null);
+        }
+        return or;
+    }
+
+    private Expression parseAnd() {
+        Expression and = parseEq();
+        while (token.kind == TokenKind.AND) {
+            Token temp = token;
             acceptIt();
-            parseExpression();
-            if (token.kind == TokenKind.PERIOD) {
-                parseExpression();
-            }
+            and = new BinaryExpr(new Operator(temp), and, parseEq(), null);
+        }
+        return and;
+    }
+
+    private Expression parseEq() {
+        Expression eq = parseIneq();
+        while (token.kind == TokenKind.EQUIVALENT || token.kind == TokenKind.NEQUAL) {
+            Token temp = token;
+            acceptIt();
+            eq = new BinaryExpr(new Operator(temp), eq, parseIneq(), null);
+        }
+        return eq;
+    }
+
+    private Expression parseIneq() {
+        Expression ineq = parseAdd();
+        while (token.kind == TokenKind.LEQUAL || token.kind == TokenKind.LTHAN || token.kind == TokenKind.GTHAN ||
+                token.kind == TokenKind.GEQUAL) {
+            Token temp = token;
+            acceptIt();
+            ineq = new BinaryExpr(new Operator(temp), ineq, parseAdd(), null);
+        }
+        return ineq;
+    }
+
+    private Expression parseAdd() {
+        Expression add = parseMult();
+        while (token.kind == TokenKind.PLUS || token.kind == TokenKind.MINUS) {
+            Token temp = token;
+            acceptIt();
+            add = new BinaryExpr(new Operator(temp), add, parseMult(), null);
+        }
+        return add;
+    }
+
+    private Expression parseMult() {
+        Expression mult = parseUnary();
+        while (token.kind == TokenKind.TIMES || token.kind == TokenKind.DIVIDE) {
+            Token temp = token;
+            acceptIt();
+            mult = new BinaryExpr(new Operator(temp), mult, parseUnary(), null);
+        }
+        return mult;
+    }
+
+    private Expression parseUnary() {
+        Expression unary;
+        if (token.kind == TokenKind.MINUS || token.kind == TokenKind.EXCLAMATION) {
+            Operator unaryOperator = new Operator(token);
+            acceptIt();
+            unary = new UnaryExpr(unaryOperator, parseUnary(), null);
+        } else unary = parseRemaining();
+        return unary;
+    }
+
+    private Expression parseRemaining() {
+        Expression expression1 = null;
+
+        if (token.kind == TokenKind.NUM) {
+            expression1 = new LiteralExpr(new IntLiteral(token), null);
+            acceptIt();
+        } else if (token.kind == TokenKind.TRUE || token.kind == TokenKind.FALSE) {
+            expression1 = new LiteralExpr(new BooleanLiteral(token), null);
+            acceptIt();
+        } else if (token.kind == TokenKind.LPAREN) {
+            acceptIt();
+            expression1 = parseExpression();
             accept(TokenKind.RPAREN);
-            return;
-        } else if (token.kind == TokenKind.NUM || token.kind == TokenKind.TRUE ||
-                token.kind == TokenKind.FALSE) { //num/true/false section
-            acceptIt();
-            return;
-        } else if (token.kind == TokenKind.NEW) { //new section
-            acceptIt();
-            if (token.kind == TokenKind.ID) { //Accept id() for new
+        } else if (token.kind == TokenKind.NEW) {
+            while(true) {
                 acceptIt();
-                if (token.kind == TokenKind.LPAREN) {
+                if (token.kind == TokenKind.INT) {
                     acceptIt();
-                    accept(TokenKind.RPAREN);
-                } else { //Accept id [ Expression ] for new
                     accept(TokenKind.LSQUARE);
-                    parseExpression();
+                    expression1 = new NewArrayExpr(new BaseType(TypeKind.INT, null), parseExpression(), null);
                     accept(TokenKind.RSQUARE);
-                    return;
+                    break;
+                } else if (token.kind == TokenKind.ID) {
+                    Token newId = token;
+                    accept(TokenKind.ID);
+                    if (token.kind == TokenKind.LPAREN) {
+                        acceptIt();
+                        accept(TokenKind.RPAREN);
+                        expression1 = new NewObjectExpr(new ClassType(new Identifier(newId), null), null);
+                        break;
+                    } else {
+                        accept(TokenKind.LSQUARE);
+                        expression1 = new NewArrayExpr(new ClassType(new Identifier(newId), null), parseExpression(),
+                                null);
+                        accept(TokenKind.RSQUARE);
+                        break;
+                    }
                 }
-            } else { // Accept int [ Expression ] for new
-                accept(TokenKind.INT);
-                accept(TokenKind.LSQUARE);
-                parseExpression();
-                accept(TokenKind.RSQUARE);
-                return;
             }
-        } else if (token.kind != TokenKind.NUM || token.kind != TokenKind.TRUE || token.kind != TokenKind.FALSE) {
-            if (token.kind.toSimple() == SimpleToken.BINOP) {
+        } else if (token.kind == TokenKind.THIS) {
+            while (true) {
                 acceptIt();
-                if (token.kind.toSimple() == SimpleToken.BINOP) {
+                Reference thisRoot = new ThisRef(null);
+                while (token.kind == TokenKind.PERIOD) {
                     acceptIt();
+                    thisRoot = new QualRef(thisRoot, new Identifier(token), null);
+                    accept(TokenKind.ID);
                 }
-                parseExpression();
-                return;
-            }
-            parseReference(); //Only reference section
-            if (token.kind == TokenKind.LSQUARE) { //Reference into Square Expression section
-                accept(TokenKind.LSQUARE);
-                parseExpression();
-                accept(TokenKind.RSQUARE);
-            } else if (token.kind == TokenKind.LPAREN) { //Argument list section
+                if (token.kind != TokenKind.LPAREN) {
+                    expression1 = new RefExpr(thisRoot, null);
+                    break;
+                }
                 accept(TokenKind.LPAREN);
                 if (token.kind != TokenKind.RPAREN) {
-                    parseArgumentList();
+                    expression1 = new CallExpr(thisRoot, parseArgumentList(), null);
+                } else {
+                    expression1 = new CallExpr(thisRoot, new ExprList(), null);
                 }
                 accept(TokenKind.RPAREN);
+                break;
             }
-            if (token.kind.toSimple() == SimpleToken.BINOP) {
-                if (token.kind.toSimple() == SimpleToken.BINOP)
+        } else if (token.kind == TokenKind.ID) {
+            while (true) {
+                Reference idRoot = new IdRef(new Identifier(token), null);
+                IdRef temp = (IdRef) idRoot;
+                acceptIt();
+                if (token.kind == TokenKind.LSQUARE) {
                     acceptIt();
-                if (token.kind.toSimple() != SimpleToken.BINOP)
-                    parseExpression();
-                else {
-                    acceptIt();
-                    parseExpression();
+                    //Reference, Expression, Source Pos
+                    expression1 = new IxExpr(temp, parseExpression(), null);
+                    accept(TokenKind.RSQUARE);
+                    break;
                 }
-                return;
+                while (token.kind == TokenKind.PERIOD) {
+                    acceptIt();
+                    idRoot = new QualRef(idRoot, new Identifier(token), null);
+                    accept(TokenKind.ID);
+                }
+                if (token.kind != TokenKind.LPAREN) {
+                    if (token.kind == TokenKind.LSQUARE){
+                        acceptIt();
+                        expression1 = parseExpression();
+                        accept(TokenKind.RSQUARE);
+                        expression1 = new IxExpr(idRoot, expression1, null);
+                        break;
+                    }
+                    expression1 = new RefExpr(idRoot, null);
+                    break;
+                }
+                accept(TokenKind.LPAREN);
+                ExprList expressionList = new ExprList();
+                if (token.kind != TokenKind.RPAREN) {
+                    expressionList = parseArgumentList();
+                }
+                expression1 = new CallExpr(idRoot, expressionList, null);
+                accept(TokenKind.RPAREN);
+                break;
             }
+        } else {
+            parseError("Expression parse error");
+            return null;
         }
+        return expression1;
+    }
+
+    private boolean checkExpression() {
+        if (token.kind == TokenKind.ID || token.kind == TokenKind.THIS || token.kind == TokenKind.NUM ||
+                token.kind == TokenKind.TRUE || token.kind == TokenKind.FALSE || token.kind == TokenKind.NEW) {
+            return true;
+        }
+        return false;
     }
 
     //Reference -> id Reference' | this Reference'
-    private void parseReference() {
+    private Reference parseReference() {
+        Token savedToken = token;
+        Reference root = null;
         if (token.kind == TokenKind.THIS || token.kind == TokenKind.ID) {
-            acceptIt();
+            if (token.kind == TokenKind.THIS) {
+                acceptIt();
+                root = new ThisRef(null);
+            } else {
+                acceptIt();
+                root = new IdRef(new Identifier(savedToken), null);
+            }
         }
         while (token.kind == TokenKind.PERIOD) {
             acceptIt();
+            root = new QualRef(root, new Identifier(savedToken), null);
             accept(TokenKind.ID);
         }
-        return;
+        return root;
     }
 
-    private void parseArgumentList() {
-        parseExpression();
-        if (token.kind == TokenKind.COMMA || token.kind == TokenKind.PERIOD) {
+    private ExprList parseArgumentList() {
+        ExprList expressionList = new ExprList();
+        expressionList.add(parseExpression());
+        while (token.kind == TokenKind.COMMA) {
             acceptIt();
-            parseArgumentList();
+            expressionList.add(parseExpression());
         }
-//        if (token.kind == TokenKind.RPAREN){
-//            acceptIt();
-//        }
+        return expressionList;
     }
 
-    private void parseParameterList() {
-        parseType();
-        accept(TokenKind.ID);
-        if (token.kind == TokenKind.COMMA) {
-            acceptIt();
-            parseParameterList();
+    private ParameterDeclList parseParameterList() {
+        ParameterDeclList result = new ParameterDeclList();
+        if (couldBeType()) {
+            result.add(new ParameterDecl(parseType(), token.spelling, null));
+            accept(TokenKind.ID);
+            if (token.kind == TokenKind.COMMA) {
+                acceptIt();
+                parseParameterList();
+            }
+        } else {
+            parseError("Parameter list error");
         }
+        return result;
     }
 
-    private void parseType() {
+    private TypeDenoter parseType() {
         if (token.kind == TokenKind.BOOLEAN) {
             acceptIt();
-            return;
-        }
-        if (token.kind == TokenKind.ID || token.kind == TokenKind.INT) {
-            acceptIt();
+            return new BaseType(TypeKind.BOOLEAN, null);
+        } else if (token.kind == TokenKind.INT) {
+            accept(TokenKind.INT);
             if (token.kind == TokenKind.LSQUARE) {
                 acceptIt();
                 accept(TokenKind.RSQUARE);
+                return new BaseType(TypeKind.ARRAY, null);
             }
+            return new BaseType(TypeKind.INT, null);
+        } else if (token.kind == TokenKind.ID) {
+            String typeName = token.spelling;
+            Token prevToken = token;
+            accept(TokenKind.ID);
+            if (token.kind == TokenKind.LSQUARE) {
+                acceptIt();
+                accept(TokenKind.RSQUARE);
+                return new ArrayType(new ClassType(new Identifier(prevToken), null), null);
+            }
+            return new ClassType(new Identifier(prevToken), null);
+        } else {
+            parseError("Type Error");
         }
+        return new BaseType(TypeKind.UNSUPPORTED, null);
     }
 
-    private void parseAccess() {
+    private boolean couldBeType() {
+        if (token.kind == TokenKind.BOOLEAN || token.kind == TokenKind.INT || token.kind == TokenKind.ID) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean parseAccess() {
         if (token.kind == TokenKind.STATIC) {
             acceptIt();
-            return;
+            return true;
         }
-        return;
+        return false;
     }
 
-    private void parseVisibility() {
+    private boolean parseVisibility() {
         if (token.kind == TokenKind.PUBLIC) {
             acceptIt();
-            return;
-        } else if (token.kind == TokenKind.PRIVATE) {
+            return false;
+        } else {
             acceptIt();
-            return;
+            return true;
         }
-        return;
     }
 
     private void acceptIt() throws SyntaxError {

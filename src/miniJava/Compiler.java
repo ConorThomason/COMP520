@@ -2,9 +2,12 @@ package miniJava;
 
 import miniJava.SyntacticAnalyzer.Parser;
 import miniJava.SyntacticAnalyzer.Scanner;
+import miniJava.AbstractSyntaxTrees.*;
 
-import miniJava.ErrorReporter;
 import java.io.*;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
 
 public class Compiler {
     public static void main(String[] args) throws IOException {
@@ -21,7 +24,8 @@ public class Compiler {
         Parser parser = new Parser(scanner, errorReporter);
 
         System.out.println("Syntactic analysis ... ");
-        parser.parse();
+        AST ast = parser.parse();
+        ASTDisplay display = new ASTDisplay();
         System.out.print("Syntactic analysis complete:  ");
         if (errorReporter.hasErrors()){
             System.out.println("Invalid miniJava program");
@@ -29,6 +33,7 @@ public class Compiler {
         }
         else{
             System.out.println("Valid miniJava program");
+            display.showTree(ast);
             System.exit(0);
         }
     }

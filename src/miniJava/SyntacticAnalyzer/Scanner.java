@@ -25,34 +25,39 @@ public class Scanner {
         //token starts, get spelling and identify token kind
         currentSpelling = new StringBuilder();
         TokenKind kind = scanToken();
+        boolean blockCommentTerminated = !(kind == TokenKind.BLOCKCOMMENT);
         while (kind == TokenKind.COMMENT || kind == TokenKind.BLOCKCOMMENT) {
-            while (currentChar != '\n' && currentChar != '\r' && !eot) {
-                skipIt();
-            }
-            skipIt();
-            kind = scanToken();
-            if (kind != TokenKind.COMMENT && kind != TokenKind.BLOCKCOMMENT)
-                break;
-            if (kind == TokenKind.COMMENT)
-                continue;
-            boolean foundEnd = false;
-            while(!foundEnd) {
-                boolean foundStar = false;
-                while (!foundStar){
-                    if (currentChar == '*'){
-                        foundStar = true;
-                    }
+            while (kind == TokenKind.COMMENT) {
+                while (currentChar != '\n' && currentChar != '\r' && !eot) {
                     skipIt();
-                    if (currentChar == '/'){
-                        foundEnd = true;
-                    }
+                }
+                skipIt();
+                if (kind != TokenKind.COMMENT) {
+                    kind = scanToken();
+                    break;
+                }
+                if (kind == TokenKind.COMMENT) {
+                    kind = scanToken();
+                    continue;
+                }
+            }
+            if (kind == TokenKind.BLOCKCOMMENT) {
+                while (kind != TokenKind.BLOCKCOMMENTEND && !eot && kind != TokenKind.ERROR) {
+                    kind = scanToken();
+                }
+                if (eot && kind != TokenKind.BLOCKCOMMENTEND) {
+                    scanError("Block comment unterminated");
+                } else {
+                    currentSpelling.delete(0, currentSpelling.length());
+                    kind = scanToken();
                 }
             }
         }
+
         String spelling = currentSpelling.toString();
 //        System.out.println(spelling);
 //        System.out.println(kind);
-        return new Token(kind, spelling);
+        return new Token(kind, spelling, null);
     }
 
     public boolean isNumeric(char c){
@@ -80,6 +85,9 @@ public class Scanner {
         boolean idFound = false;
         while (isAlphabetic(currentChar) || currentChar == '_') {
             if (isAlphabetic(currentChar) || currentChar == '_'){
+                if (!idFound && currentChar == '_'){
+                    return TokenKind.ERROR;
+                }
                 takeIt();
                 idFound = true;
             }
@@ -134,6 +142,7 @@ public class Scanner {
             case '*':
                 takeIt();
                 if (currentChar == '/'){
+                    takeIt();
                     return (TokenKind.BLOCKCOMMENTEND);
                 }
                 return (TokenKind.TIMES);
@@ -155,22 +164,53 @@ public class Scanner {
                 return (TokenKind.DIVIDE);
             case '=':
                 takeIt();
-                return (TokenKind.EQUALS);
+                if (currentChar == '='){
+                    takeIt();
+                    return TokenKind.EQUIVALENT;
+                }
+                else{
+                    return TokenKind.EQUALS;
+                }
             case '<':
                 takeIt();
+                if (currentChar == '='){
+                    takeIt();
+                    return TokenKind.LEQUAL;
+                }
                 return (TokenKind.LTHAN);
             case '>':
                 takeIt();
+                if (currentChar == '='){
+                    takeIt();
+                    return TokenKind.GEQUAL;
+                }
                 return (TokenKind.GTHAN);
             case '&':
                 takeIt();
-                return (TokenKind.ANDSYMBOL);
+                if (currentChar != '&'){
+                    return TokenKind.ERROR;
+                }
+                else {
+                    takeIt();
+                    return (TokenKind.AND);
+                }
             case '|':
                 takeIt();
-                return (TokenKind.ORSYMBOL);
+                if (currentChar != '|'){
+                    return TokenKind.ERROR;
+                } else {
+                    takeIt();
+                    return (TokenKind.OR);
+                }
             case '!':
                 takeIt();
-                return (TokenKind.EXCLAMATION);
+                if (currentChar == '='){
+                    takeIt();
+                    return TokenKind.NEQUAL;
+                }
+                else {
+                    return (TokenKind.EXCLAMATION);
+                }
             case '-':
                 takeIt();
                 return (TokenKind.MINUS);
@@ -205,6 +245,7 @@ public class Scanner {
             case '\r':
             case '\n':
             case ' ':
+            case '\\':
                 skipIt();
                 return scanToken();
             case '0':
