@@ -437,6 +437,8 @@ public class Parser {
                         accept(TokenKind.RSQUARE);
                         break;
                     }
+                } else if (token.kind == TokenKind.EOT){
+                    break;
                 }
             }
         } else if (token.kind == TokenKind.THIS) {
@@ -447,6 +449,12 @@ public class Parser {
                     acceptIt();
                     thisRoot = new QualRef(thisRoot, new Identifier(token), null);
                     accept(TokenKind.ID);
+                }
+                if (token.kind == TokenKind.LSQUARE){
+                    acceptIt();
+                    expression1 = new IxExpr(thisRoot, parseExpression(), null);
+                    accept(TokenKind.RSQUARE);
+                    break;
                 }
                 if (token.kind != TokenKind.LPAREN) {
                     expression1 = new RefExpr(thisRoot, null);
@@ -546,15 +554,17 @@ public class Parser {
 
     private ParameterDeclList parseParameterList() {
         ParameterDeclList result = new ParameterDeclList();
-        if (couldBeType()) {
-            result.add(new ParameterDecl(parseType(), token.spelling, null));
-            accept(TokenKind.ID);
-            if (token.kind == TokenKind.COMMA) {
-                acceptIt();
-                parseParameterList();
+        while (couldBeType()) {
+            if (couldBeType()) {
+                result.add(new ParameterDecl(parseType(), token.spelling, null));
+                accept(TokenKind.ID);
+                if (token.kind == TokenKind.COMMA) {
+                    acceptIt();
+                }
             }
-        } else {
-            parseError("Parameter list error");
+            else {
+                parseError("Parameter list error");
+            }
         }
         return result;
     }
@@ -568,7 +578,7 @@ public class Parser {
             if (token.kind == TokenKind.LSQUARE) {
                 acceptIt();
                 accept(TokenKind.RSQUARE);
-                return new BaseType(TypeKind.ARRAY, null);
+                return new ArrayType(new BaseType(TypeKind.INT, null), null);
             }
             return new BaseType(TypeKind.INT, null);
         } else if (token.kind == TokenKind.ID) {

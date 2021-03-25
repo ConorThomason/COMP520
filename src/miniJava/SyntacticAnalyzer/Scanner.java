@@ -159,9 +159,8 @@ public class Scanner {
                     return (TokenKind.BLOCKCOMMENT);
                 }
                 else{
-                    takeIt();
+                    return (TokenKind.DIVIDE);
                 }
-                return (TokenKind.DIVIDE);
             case '=':
                 takeIt();
                 if (currentChar == '='){
@@ -262,6 +261,10 @@ public class Scanner {
                 while (isDigit(currentChar)) {
                     if (leadingZero && currentChar == '0') {
                         skipIt();
+                        if (!isDigit(currentChar)){
+                            currentSpelling.append('0');
+                            return (TokenKind.NUM);
+                        }
                         continue;
                     } else {
                         leadingZero = false;
