@@ -27,7 +27,7 @@ public class Parser {
         private static final long serialVersionUID = 1L;
     }
 
-    public AST parse() {
+    public Package parse() {
         token = scanner.scan();
         try {
             return parsePackage();
@@ -36,7 +36,7 @@ public class Parser {
         }
     }
 
-    private Package parsePackage() throws SyntaxError {
+    public Package parsePackage() throws SyntaxError {
         Package packageAST = null;
 
         ClassDeclList classDeclListAST = new ClassDeclList();

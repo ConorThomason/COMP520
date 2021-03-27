@@ -1,5 +1,7 @@
 package miniJava;
 
+import miniJava.AbstractSyntaxTrees.Package;
+import miniJava.ContextualAnalyzer.Identification;
 import miniJava.SyntacticAnalyzer.Parser;
 import miniJava.SyntacticAnalyzer.Scanner;
 import miniJava.AbstractSyntaxTrees.*;
@@ -24,8 +26,9 @@ public class Compiler {
         Parser parser = new Parser(scanner, errorReporter);
 
         System.out.println("Syntactic analysis ... ");
-        AST ast = parser.parse();
+        Package ast = parser.parse();
         ASTDisplay display = new ASTDisplay();
+        Identification identification = new Identification(ast, errorReporter);
         System.out.print("Syntactic analysis complete:  ");
         if (errorReporter.hasErrors()){
             System.out.println("Invalid miniJava program");
