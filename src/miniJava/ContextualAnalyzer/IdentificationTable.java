@@ -51,7 +51,7 @@ public class IdentificationTable {
         Stack<HashMap<String, Declaration>> copiedStack =
                 (Stack<HashMap<String, Declaration>>)allTables.clone();
         for (int i = getLevelDepth() - 1; i >=0; i--){
-            attribute = allTables.pop().get(id);
+            attribute = copiedStack.pop().get(id);
             if (attribute != null){
                 return attribute;
             }
@@ -65,6 +65,7 @@ public class IdentificationTable {
     }
 
     public void openScope(){
+        if (Identification.debug) System.out.println("Opening Scope");
         latestEntry = new HashMap<String, Declaration>();
         allTables.push(latestEntry);
     }
@@ -75,6 +76,7 @@ public class IdentificationTable {
     }
 
     public void closeScope(){
-        allTables.pop();
+        HashMap<String, Declaration> value = allTables.pop();
+        if (Identification.debug) System.out.println("Closing scope, " + value + " popped");
     }
 }

@@ -36,7 +36,7 @@ public class Compiler {
         }
         else{
             System.out.println("Valid miniJava program");
-            display.showTree(ast);
+//            display.showTree(ast);
             System.exit(0);
         }
     }
