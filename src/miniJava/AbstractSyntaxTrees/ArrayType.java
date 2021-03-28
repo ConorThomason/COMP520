@@ -8,6 +8,8 @@ package miniJava.AbstractSyntaxTrees;
 
 import miniJava.SyntacticAnalyzer.SourcePosition;
 
+import javax.lang.model.type.NullType;
+
 public class ArrayType extends TypeDenoter {
 
 	    public ArrayType(TypeDenoter eltType, SourcePosition posn){
@@ -18,6 +20,11 @@ public class ArrayType extends TypeDenoter {
 	    public <A,R> R visit(Visitor<A,R> v, A o) {
 	        return v.visitArrayType(this, o);
 	    }
+
+		public boolean equals(Object type){
+	    	if (type instanceof NullType) return true;
+	    	return (super.equals(type) && eltType.equals(((ArrayType) type).eltType));
+		}
 
 	    public TypeDenoter eltType;
 	}

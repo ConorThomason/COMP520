@@ -12,6 +12,7 @@ public class SourcePosition {
         start = s;
         finish = f;
     }
+
     public String toString(){
         return "(" + start + ", " + finish + ")";
     }

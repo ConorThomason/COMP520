@@ -49,7 +49,7 @@ public class ASTDisplay implements Visitor<String,Object> {
      * @param node    AST node, will be shown by name
      */
     private void show(String prefix, AST node) {
-    	System.out.println(prefix + node.toString());
+    	System.out.println(prefix + node.toString() /* + node.posn.toString()*/);
     }
     
     /**
@@ -362,6 +362,12 @@ public class ASTDisplay implements Visitor<String,Object> {
     
     public Object visitBooleanLiteral(BooleanLiteral bool, String arg){
         show(arg, quote(bool.spelling) + " " + bool.toString());
+        return null;
+    }
+
+    @Override
+    public Object visitNullLiteral(NullLiteral nullLiteral, String arg) {
+        show(arg, quote(nullLiteral.spelling) + " " + nullLiteral.toString());
         return null;
     }
 }

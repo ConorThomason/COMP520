@@ -1,8 +1,11 @@
 package miniJava.ContextualAnalyzer;
 
 import miniJava.AbstractSyntaxTrees.Declaration;
+import miniJava.AbstractSyntaxTrees.MemberDecl;
+import miniJava.AbstractSyntaxTrees.MethodDecl;
 import miniJava.ErrorReporter;
 
+import java.lang.reflect.Member;
 import java.util.HashMap;
 import java.util.Stack;
 
@@ -11,6 +14,7 @@ public class IdentificationTable {
 
     private HashMap<String, Declaration> latestEntry;
     private Stack<HashMap<String, Declaration>> allTables;
+    private boolean staticContext = false;
 
     public IdentificationTable(ErrorReporter reporter){
         this.reporter = reporter;
@@ -39,7 +43,12 @@ public class IdentificationTable {
                 return 0;
             }
         }
-
+        if (attribute instanceof MemberDecl && getLevelDepth() == 2 && ((MemberDecl)attribute).isStatic){
+            if (Identification.debug){
+                System.out.println("Context is static");
+            }
+            staticContext = true;
+        }
         latestEntry.put(id, attribute);
         allTables.pop();
         allTables.push(latestEntry);
@@ -75,7 +84,15 @@ public class IdentificationTable {
         allTables.push(latestEntry);
     }
 
+    public boolean isStaticContext(){
+        return staticContext;
+    }
+
     public void closeScope(){
+        if (isStaticContext() && getLevelDepth() == 1){
+            if (Identification.debug) System.out.println("Dropping static context");
+            staticContext = false;
+        }
         HashMap<String, Declaration> value = allTables.pop();
         if (Identification.debug) System.out.println("Closing scope, " + value + " popped");
     }

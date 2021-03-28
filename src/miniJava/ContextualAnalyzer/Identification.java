@@ -1,13 +1,13 @@
 package miniJava.ContextualAnalyzer;
 
+import com.sun.org.apache.xalan.internal.xsltc.compiler.util.TypeCheckError;
 import miniJava.AbstractSyntaxTrees.*;
 import miniJava.AbstractSyntaxTrees.Package;
 import miniJava.ErrorReporter;
+import miniJava.SyntacticAnalyzer.SourcePosition;
+import miniJava.SyntacticAnalyzer.Token;
 import miniJava.SyntacticAnalyzer.TokenKind;
 
-import java.lang.reflect.Parameter;
-import java.lang.reflect.Type;
-import java.util.HashMap;
 import java.util.Iterator;
 
 public class Identification implements Visitor<Object, Object> {
@@ -15,9 +15,12 @@ public class Identification implements Visitor<Object, Object> {
 
     public IdentificationTable table;
     private ErrorReporter reporter;
+    private ClassType workingClass;
+    private String forbiddenVariable;
 
     public BaseType errorType = new BaseType(TypeKind.ERROR, null);
     public BaseType unsupportedType = new BaseType(TypeKind.UNSUPPORTED, null);
+    public BaseType nullType = new BaseType(TypeKind.NULL, null);
 
     public Identification(Package ast, ErrorReporter reporter){
         this.reporter = reporter;
@@ -49,18 +52,25 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitClassDecl(ClassDecl cd, Object arg) {
-
+        workingClass = new ClassType(new Identifier(new Token(TokenKind.ID, cd.name, null)), null);
+        table.openScope();
         for (MethodDecl m: cd.methodDeclList){
             if (debug) System.out.println("Attempting to insert " + m.name + ", " + m);
             table.insert(m.name, m);
         }
+        for (FieldDecl fd: cd.fieldDeclList){
+            if (debug) System.out.println("Attempting to insert " + fd.name + ", " + fd);
+            table.insert(fd.name, fd);
+        }
 
         for (MethodDecl m: cd.methodDeclList){
-            table.openScope();
             if (debug) System.out.println("Attempting to visit " + m);
             m.visit(this, arg);
-            table.closeScope();
         }
+        for (FieldDecl fd : cd.fieldDeclList){
+            if (debug) System.out.println("Attempting to visit " + fd);
+        }
+        table.closeScope();
         return null;
     }
 
@@ -73,6 +83,7 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitMethodDecl(MethodDecl md, Object arg) {
+        table.openScope();
         for (ParameterDecl pd : md.parameterDeclList){
             if (debug) System.out.println("Attempting to insert " + pd.name + ", " + pd);
         }
@@ -89,6 +100,10 @@ public class Identification implements Visitor<Object, Object> {
 
         for (Statement s: md.statementList){
             if (debug) System.out.println("Attempting to visit " + s);
+            TypeDenoter type = (TypeDenoter) s.visit(this, arg);
+            if (s instanceof ReturnStmt && !type.equals((TypeDenoter) md.type)){
+                TypeError("Return statement fails to match function return type", s.posn);
+            }
             s.visit(this, arg);
         }
         if (md.type.typeKind != TypeKind.NULL){
@@ -96,6 +111,7 @@ public class Identification implements Visitor<Object, Object> {
             md.type.visit(this, arg);
         }
 
+        table.closeScope();
         table.closeScope();
         return null;
     }
@@ -111,7 +127,7 @@ public class Identification implements Visitor<Object, Object> {
     public Object visitVarDecl(VarDecl decl, Object arg) {
         if (debug) System.out.println("Attempting to visit " + decl);
         decl.type.visit(this, arg);
-        return null;
+        return decl.type;
     }
 
     @Override
@@ -138,31 +154,64 @@ public class Identification implements Visitor<Object, Object> {
         return null;
     }
     public boolean errorUnsupportedCheck(TypeDenoter given){
+        if (given.equals(nullType)){
+            return true;
+        }
        if (!given.equals(errorType) || !given.equals(unsupportedType)){
-           return true;
+           return false;
        }
-       return false;
+       return true;
     }
 
     public boolean errorUnsupportedCheck(TypeDenoter given1, TypeDenoter given2){
         if (!given1.equals(errorType) || !given1.equals(unsupportedType) && (!given2.equals(errorType) ||
                 !given2.equals(unsupportedType))){
-            return true;
+            return false;
         }
-        return false;
+        return true;
     }
     @Override
     public Object visitVardeclStmt(VarDeclStmt stmt, Object arg) {
         if (debug) System.out.println("Attempting to visit " + stmt);
+        this.forbiddenVariable = stmt.varDecl.name;
         TypeDenoter expressionType = (TypeDenoter) stmt.initExp.visit(this, arg);
+        this.forbiddenVariable = null;
         if (debug) System.out.println("expressionType: " + expressionType);
         if (errorUnsupportedCheck(expressionType)){
-            if(stmt.varDecl.type != expressionType){
-                System.out.println("Type Mismatch - VarDeclStmt");
-                System.exit(4);
+            if(!stmt.varDecl.type.equals(expressionType)){
+                TypeError("Type Mismatch - VarDeclStmt", expressionType.posn);
             }
         }
-        return null;
+        if (stmt.initExp instanceof RefExpr){
+            RefExpr expression = (RefExpr) stmt.initExp;
+            if (expression.ref.declaration instanceof ClassDecl){
+               TypeError(expression + " Invalid class assignment", expression.posn);
+            }
+            if (expression.ref.declaration instanceof MethodDecl){
+                TypeError(expression + " Invalid method assignment", expression.posn);
+            }
+        }
+        TypeDenoter reference = (TypeDenoter) stmt.varDecl.visit(this, null);
+        TypeDenoter expression = (TypeDenoter) stmt.initExp.visit(this, null);
+        if (!reference.equals(expression)){
+            if (reference instanceof ClassType && expression instanceof ClassType){
+                String name1 = ((ClassType) reference).className.spelling;
+                String name2 = ((ClassType) expression).className.spelling;
+                if (name1 == null || name2 == null){
+                    TypeError("Variable declaration attempts invalid class assignment", reference.posn);
+                }
+                else{
+                    TypeError("Variable declaration attempts assignment of expression to incompatible reference",
+                            reference.posn);
+                }
+            }
+            else{
+                TypeError("Variable declaration attempts assignment of expression to incompatible reference",
+                        reference.posn);
+            }
+            return new BaseType(TypeKind.ERROR, stmt.posn);
+        }
+        return reference;
     }
 
     @Override
@@ -173,8 +222,7 @@ public class Identification implements Visitor<Object, Object> {
         TypeDenoter valueType = (TypeDenoter) stmt.val.visit(this, null);
         if (errorUnsupportedCheck(referenceType, valueType))
             if(valueType != referenceType){
-                System.out.println("Type Mismatch - AssignStmt");
-                System.exit(4);
+                TypeError("Type Mismatch - AssignStmt", valueType.posn);
             }
         return null;
     }
@@ -199,7 +247,10 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitReturnStmt(ReturnStmt stmt, Object arg) {
-        return null;
+        if (stmt.returnExpr != null){
+            return stmt.returnExpr.visit(this, null);
+        }
+        return new BaseType(TypeKind.VOID, stmt.posn);
     }
 
     @Override
@@ -207,19 +258,36 @@ public class Identification implements Visitor<Object, Object> {
         if (debug) System.out.println("Attempting to visit " + stmt);
         TypeDenoter conditionType = (TypeDenoter) stmt.cond.visit(this, arg);
         if (errorUnsupportedCheck(conditionType)){
-            System.out.println("IfStmt - Condition type not boolean");
+            TypeError("IfStmt - Condition type not boolean", conditionType.posn);
             System.exit(4);
+        }
+        if (stmt.thenStmt instanceof VarDeclStmt){
+            TypeError("If statement variable declaration not permitted here", stmt.thenStmt.posn);
         }
         if (debug) System.out.println("Attempting to visit " + stmt);
         stmt.thenStmt.visit(this, arg);
-        if (stmt.elseStmt != null)
+        if (stmt.elseStmt != null) {
             if (debug) System.out.println("Attempting to visit " + stmt);
+            if (stmt.elseStmt instanceof VarDeclStmt){
+                TypeError("If statement variable declaration not permitted here", stmt.elseStmt.posn);
+            }
             stmt.elseStmt.visit(this, arg);
+        }
         return null;
     }
 
     @Override
     public Object visitWhileStmt(WhileStmt stmt, Object arg) {
+        TypeDenoter conditionType = (TypeDenoter) stmt.cond.visit(this, arg);
+        if (errorUnsupportedCheck(conditionType)){
+            if (!conditionType.equals(new BaseType(TypeKind.BOOLEAN, null))){
+                TypeError("WhileStmt - Condition Type isn't Boolean", stmt.posn);
+            }
+        }
+        if (stmt.body instanceof VarDeclStmt){
+            TypeError("Solitary variable declaration not permitted", stmt.posn);
+        }
+        stmt.body.visit(this, "");
         return null;
     }
 
@@ -235,8 +303,8 @@ public class Identification implements Visitor<Object, Object> {
         else{
             switch (expr.operator.kind){
                 case MINUS:
-                    if (internalType.typeKind == TypeKind.INT){
-                        System.out.println("Unary Expr Int Numerical Negation Error");
+                    if (internalType.typeKind != TypeKind.INT){
+                        TypeError("Unary Expr Int Numerical Negation Error", internalType.posn);
                         returnedType = new BaseType(TypeKind.UNSUPPORTED, null);
                     } else{
                         returnedType = internalType;
@@ -244,14 +312,14 @@ public class Identification implements Visitor<Object, Object> {
                     break;
                 case EXCLAMATION:
                     if (internalType.typeKind != TypeKind.BOOLEAN){
-                        System.out.println("Unary Expr Boolean Logical Negation Error");
+                        TypeError("Unary Expr Boolean Logical Negation Error", internalType.posn);
                         returnedType = new BaseType(TypeKind.UNSUPPORTED, null);
                     } else{
                         returnedType = internalType;
                     }
                     break;
                 default:
-                    System.out.println("Invalid unary op");
+                    TypeError("Invalid unary op", internalType.posn);
                     returnedType = new BaseType(TypeKind.UNSUPPORTED, null);
                     break;
             }
@@ -266,8 +334,17 @@ public class Identification implements Visitor<Object, Object> {
         expr.operator.visit(this, arg);
         TypeDenoter left = (TypeDenoter) expr.left.visit(this, arg);
         TypeDenoter right = (TypeDenoter) expr.right.visit(this, arg);
-
-        if (errorUnsupportedCheck(left, right)){
+        boolean checkResult = false;
+        if (left == null || right == null){
+            if (left != null){
+                checkResult = errorUnsupportedCheck(left);
+            } if (right != null){
+                checkResult = errorUnsupportedCheck(right);
+            }
+        } else{
+            checkResult = errorUnsupportedCheck(left, right);
+        }
+        if (checkResult){
             returnedType = new BaseType(TypeKind.ERROR, null);
         }
         else{
@@ -288,8 +365,13 @@ public class Identification implements Visitor<Object, Object> {
             case OR:
                 returnedType = (TypeDenoter) binaryCheckSimplified(expr, left, right, operator, true);
                 break;
-            case EQUALS:
+            case EQUIVALENT:
             case NEQUAL:
+                if (!left.equals(right)){
+                    TypeError("Type mismatch, EQ Binary Expression error", expr.posn);
+                    returnedType = unsupportedType;
+                }
+                break;
             case GTHAN:
             case GEQUAL:
             case LTHAN:
@@ -297,7 +379,7 @@ public class Identification implements Visitor<Object, Object> {
                 returnedType = (TypeDenoter) binaryCheckSimplified(expr, left, right, operator, false);
                 break;
             default:
-                System.out.println("Unsupported binary operator");
+                TypeError("Unsupported binary operator", left.posn);
                 returnedType = new BaseType(TypeKind.UNSUPPORTED, null);
         }
         return returnedType;
@@ -306,15 +388,55 @@ public class Identification implements Visitor<Object, Object> {
     public Object binaryCheckSimplified(BinaryExpr expr, TypeDenoter left, TypeDenoter right,
                                         Operator operator, boolean trueIfLeft){
         TypeDenoter returnedType = null;
-        if (left.typeKind!= TypeKind.INT || right.typeKind != TypeKind.INT){
-            System.out.println("Type mismatch " + operator.kind + " binary expression");
-            returnedType = new BaseType(left.typeKind, null);
+        if (intCheck(left, right) && boolCheck(left, right)){
+            TypeError("Type mismatch" + operator.kind + " binary expression error", left.posn);
+        } else if (trueIfLeft) {
+            returnedType = left;
+        } else {
+            returnedType = new BaseType(TypeKind.BOOLEAN, null);
         }
         return returnedType;
     }
+
+    public boolean intCheck(TypeDenoter left, TypeDenoter right){
+        if (left == null || right == null){
+            if (left != null){
+                if (!left.equals(new BaseType(TypeKind.INT, null))){
+                    return false;
+                }
+                return true;
+            }
+            else if (right != null){
+                if (!right.equals(new BaseType(TypeKind.INT, null))){
+                    return false;
+                }
+                return true;
+            }
+        }
+        else {
+            if (!left.equals(new BaseType(TypeKind.INT, null)) ||
+                    !right.equals(new BaseType(TypeKind.INT, null))) {
+                return false;
+            }
+            else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean boolCheck(TypeDenoter left, TypeDenoter right){
+        if (!left.equals(new BaseType(TypeKind.BOOLEAN, null)) ||
+                !right.equals(new BaseType(TypeKind.BOOLEAN, null))){
+            return false;
+        }
+        return true;
+    }
+
     @Override
     public Object visitRefExpr(RefExpr expr, Object arg) {
         TypeDenoter returnedType = null;
+        if (debug) System.out.println("Attempting to visit " + expr);
         TypeDenoter internalType = (TypeDenoter) expr.ref.visit(this, arg);
 
         if (internalType != null && (errorUnsupportedCheck(internalType))){
@@ -328,12 +450,15 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitIxExpr(IxExpr expr, Object arg) {
+        expr.ref.visit(this, arg);
+        expr.ixExpr.visit(this, arg);
         return null;
     }
 
     @Override
     public Object visitCallExpr(CallExpr expr, Object arg) {
         TypeDenoter returnedType = null;
+        if (debug) System.out.println("Attempting to visit " + expr);
         TypeDenoter functionType = (TypeDenoter) expr.functionRef.visit(this, arg);
         if (errorUnsupportedCheck(functionType)){
             returnedType = new BaseType(TypeKind.ERROR, null);
@@ -344,7 +469,7 @@ public class Identification implements Visitor<Object, Object> {
             MethodDecl castDeclaration = (MethodDecl) expr.functionRef.declaration;
             if (castDeclaration.parameterDeclList.size() != argumentList.size()){
                 returnedType = new BaseType(TypeKind.UNSUPPORTED, null);
-                System.out.println("Function call error, incorrect number of arguments");
+                TypeError("Function call error, incorrect number of arguments", castDeclaration.posn);
             }
             Iterator<ParameterDecl> parameterListIterator = castDeclaration.parameterDeclList.iterator();
             Iterator<Expression> argumentIterator = argumentList.iterator();
@@ -353,10 +478,11 @@ public class Identification implements Visitor<Object, Object> {
             while (parameterListIterator.hasNext()){
                 ParameterDecl parameterDecl = parameterListIterator.next();
                 Expression expression = argumentIterator.next();
+                if (debug) System.out.println("Attempting to visit " + expression);
                 TypeDenoter argumentType = (TypeDenoter) expression.visit(this, arg);
                 if (argumentType != parameterDecl.type){
                     returnedType = new BaseType(TypeKind.ERROR, null);
-                    System.out.println("Function call argument does not match declared type");
+                    TypeError("Function call argument does not match declared type", argumentType.posn);
                 }
             }
         }
@@ -367,6 +493,7 @@ public class Identification implements Visitor<Object, Object> {
     @Override
     public Object visitLiteralExpr(LiteralExpr expr, Object arg) {
         TypeDenoter returnedType = null;
+        if (debug) System.out.println("Attempting to visit " + expr);
         TypeDenoter literalType = (TypeDenoter) expr.lit.visit(this, arg);
         if (errorUnsupportedCheck(literalType)){
             returnedType = errorType;
@@ -384,6 +511,7 @@ public class Identification implements Visitor<Object, Object> {
     @Override
     public Object visitNewArrayExpr(NewArrayExpr expr, Object arg) {
         TypeDenoter returnedType = null;
+        if (debug) System.out.println("Attempting to visit " + expr);
         TypeDenoter sizeType = (TypeDenoter) expr.sizeExpr.visit(this, arg);
         if (errorUnsupportedCheck(sizeType)){
             returnedType = errorType;
@@ -391,7 +519,7 @@ public class Identification implements Visitor<Object, Object> {
             TypeDenoter arrayType = expr.eltType;
             if (!sizeType.equals(new BaseType(TypeKind.INT, null))){
                 returnedType = errorType;
-                System.out.println("Array requires an int size");
+                TypeError("Array requires an int size", sizeType.posn);
             }
         }
         return returnedType;
@@ -399,27 +527,45 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitThisRef(ThisRef ref, Object arg) {
-        return null;
+        return workingClass;
     }
 
     @Override
     public Object visitIdRef(IdRef ref, Object arg) {
-        return null;
+        TypeDenoter returnedType = null;
+        if (ref.id.spelling.equals(this.forbiddenVariable)){
+            TypeError(ref.id.spelling + " used in illegal position", ref.posn);
+        }
+        if (debug) System.out.println("Attempting to visit " + ref);
+        TypeDenoter idType = (TypeDenoter) ref.id.visit(this, arg);
+        if (errorUnsupportedCheck(idType)){
+            returnedType = errorType;
+        } else{
+            returnedType = idType;
+        }
+        return returnedType;
     }
 
     @Override
     public Object visitQRef(QualRef ref, Object arg) {
-        return null;
+        return nullType;
     }
 
     @Override
     public Object visitIdentifier(Identifier id, Object arg) {
-        return id.declaration.type;
+        if (id.declaration != null) {
+            return id.declaration.type;
+        }
+        else{
+            TypeError(id.spelling + " not declared", id.posn);
+            System.exit(4);
+        }
+        return null;
     }
 
     @Override
     public Object visitOperator(Operator op, Object arg) {
-        return null;
+        return new BaseType(TypeKind.UNSUPPORTED, op.posn);
     }
 
     @Override
@@ -430,6 +576,15 @@ public class Identification implements Visitor<Object, Object> {
     @Override
     public Object visitBooleanLiteral(BooleanLiteral bool, Object arg) {
         return new BaseType(TypeKind.BOOLEAN, null);
+    }
+
+    @Override
+    public Object visitNullLiteral(NullLiteral nullLiteral, Object arg) {
+        return new BaseType(TypeKind.NULL, null);
+    }
+
+    private void TypeError(String error, SourcePosition pos){
+        reporter.reportError("*** line " + pos.start + " ***Type Check error: " + error);
     }
 
 }

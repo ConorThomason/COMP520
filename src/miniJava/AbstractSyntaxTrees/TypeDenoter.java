@@ -13,6 +13,10 @@ abstract public class TypeDenoter extends AST {
         super(posn);
         typeKind = type;
     }
+
+    public boolean equals(TypeDenoter type){
+        return type.typeKind == this.typeKind;
+    }
     
     public TypeKind typeKind;
     

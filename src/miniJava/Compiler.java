@@ -28,8 +28,11 @@ public class Compiler {
         System.out.println("Syntactic analysis ... ");
         Package ast = parser.parse();
         ASTDisplay display = new ASTDisplay();
-        Identification identification = new Identification(ast, errorReporter);
+
         System.out.print("Syntactic analysis complete:  ");
+        System.out.println("\nContextual Analysis ...");
+        Identification identification = new Identification(ast, errorReporter);
+        System.out.println("Contextual analysis complete: ");
         if (errorReporter.hasErrors()){
             System.out.println("Invalid miniJava program");
             System.exit(4);

@@ -2,6 +2,8 @@ package miniJava.SyntacticAnalyzer;
 
 import java.io.IOException;
 import java.io.InputStream;
+
+import com.sun.org.apache.bcel.internal.classfile.SourceFile;
 import miniJava.ErrorReporter;
 public class Scanner {
     private InputStream inputStream;
@@ -10,7 +12,7 @@ public class Scanner {
     private StringBuilder currentSpelling;
 
     private boolean eot = false;
-
+    int lines = 1;
     public Scanner(InputStream inputStream, ErrorReporter reporter) {
         this.inputStream = inputStream;
         this.reporter = reporter;
@@ -18,38 +20,44 @@ public class Scanner {
     }
 
     public Token scan() {
+        int startLine = lines;
         while (!eot && (currentChar == ' ' || currentChar == '\t' || currentChar == '\n' || currentChar == '\r')) {
 //            System.out.println("Skipping whitespace");
+            if (currentChar == '\n')
+                lines++;
             skipIt();
         }
         //token starts, get spelling and identify token kind
         currentSpelling = new StringBuilder();
-        TokenKind kind = scanToken();
+        TokenKind kind = scanToken(true);
         boolean blockCommentTerminated = !(kind == TokenKind.BLOCKCOMMENT);
         while (kind == TokenKind.COMMENT || kind == TokenKind.BLOCKCOMMENT) {
             while (kind == TokenKind.COMMENT) {
                 while (currentChar != '\n' && currentChar != '\r' && !eot) {
+                    if (currentChar == '\n')
+                        lines++;
                     skipIt();
                 }
                 skipIt();
                 if (kind != TokenKind.COMMENT) {
-                    kind = scanToken();
+                    kind = scanToken(true);
                     break;
                 }
                 if (kind == TokenKind.COMMENT) {
-                    kind = scanToken();
+                    kind = scanToken(true);
                     continue;
                 }
             }
             if (kind == TokenKind.BLOCKCOMMENT) {
-                while (kind != TokenKind.BLOCKCOMMENTEND && !eot && kind != TokenKind.ERROR) {
-                    kind = scanToken();
+                while (kind != TokenKind.BLOCKCOMMENTEND && !eot) {
+                    currentSpelling.delete(0, currentSpelling.length());
+                    kind = scanToken(true);
                 }
                 if (eot && kind != TokenKind.BLOCKCOMMENTEND) {
                     scanError("Block comment unterminated");
                 } else {
                     currentSpelling.delete(0, currentSpelling.length());
-                    kind = scanToken();
+                    kind = scanToken(true);
                 }
             }
         }
@@ -57,7 +65,7 @@ public class Scanner {
         String spelling = currentSpelling.toString();
 //        System.out.println(spelling);
 //        System.out.println(kind);
-        return new Token(kind, spelling, null);
+        return new Token(kind, spelling, new SourcePosition(startLine, lines));
     }
 
     public boolean isNumeric(char c){
@@ -78,7 +86,7 @@ public class Scanner {
         }
     }
     /*Determine token kind*/
-    public TokenKind scanToken() {
+    public TokenKind scanToken(boolean comment) {
         if (eot) {
             return TokenKind.EOT;
         }
@@ -248,7 +256,7 @@ public class Scanner {
             case ' ':
             case '\\':
                 skipIt();
-                return scanToken();
+                return scanToken(false);
             case '0':
             case '1':
             case '2':
@@ -274,6 +282,10 @@ public class Scanner {
                     }
                 }
                 return (TokenKind.NUM);
+        }
+        if (comment){
+            skipIt();
+            return scanToken(true);
         }
         scanError("Unrecognized character '" + currentChar + "' in input");
         return (TokenKind.ERROR);
