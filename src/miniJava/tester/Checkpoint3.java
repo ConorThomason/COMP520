@@ -91,6 +91,7 @@ public class Checkpoint3 {
         ProcessBuilder pb = new ProcessBuilder("java", "miniJava.Compiler", testPath, "TYPE CHECKING");
         pb.directory(classPath);
         pb.redirectErrorStream(true);
+        System.out.println("Running test " + x.getName());
         Process p = pb.start();
 
         processStream(p.getInputStream());

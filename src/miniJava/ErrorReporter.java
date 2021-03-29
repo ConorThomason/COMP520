@@ -14,4 +14,7 @@ public class ErrorReporter {
         System.out.println(message);
         numErrors++;
     }
+    public int getErrors(){
+        return numErrors;
+    }
 }

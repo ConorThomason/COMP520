@@ -3,7 +3,6 @@ package miniJava.SyntacticAnalyzer;
 import java.io.IOException;
 import java.io.InputStream;
 
-import com.sun.org.apache.bcel.internal.classfile.SourceFile;
 import miniJava.ErrorReporter;
 public class Scanner {
     private InputStream inputStream;

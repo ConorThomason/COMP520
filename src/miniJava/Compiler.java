@@ -2,6 +2,7 @@ package miniJava;
 
 import miniJava.AbstractSyntaxTrees.Package;
 import miniJava.ContextualAnalyzer.Identification;
+import miniJava.ContextualAnalyzer.TypeChecking;
 import miniJava.SyntacticAnalyzer.Parser;
 import miniJava.SyntacticAnalyzer.Scanner;
 import miniJava.AbstractSyntaxTrees.*;
@@ -31,10 +32,11 @@ public class Compiler {
 
         System.out.print("Syntactic analysis complete:  ");
         System.out.println("\nContextual Analysis ...");
-        Identification identification = new Identification(ast, errorReporter);
+        TypeChecking typeChecker = new TypeChecking(ast, errorReporter);
         System.out.println("Contextual analysis complete: ");
         if (errorReporter.hasErrors()){
             System.out.println("Invalid miniJava program");
+            System.out.println(errorReporter.getErrors());
             System.exit(4);
         }
         else{

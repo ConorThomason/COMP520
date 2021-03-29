@@ -1,112 +1,192 @@
 package miniJava.ContextualAnalyzer;
 
-import miniJava.AbstractSyntaxTrees.Declaration;
-import miniJava.AbstractSyntaxTrees.MemberDecl;
-import miniJava.AbstractSyntaxTrees.MethodDecl;
+import miniJava.AbstractSyntaxTrees.*;
 import miniJava.ErrorReporter;
+import miniJava.SyntacticAnalyzer.SourcePosition;
 
 import java.lang.reflect.Member;
-import java.util.HashMap;
-import java.util.Stack;
+import java.util.*;
 
 public class IdentificationTable {
     public ErrorReporter reporter;
 
-    private HashMap<String, Declaration> latestEntry;
-    private Stack<HashMap<String, Declaration>> allTables;
+    private HashMap<String, HashNode> allTables;
     private boolean staticContext = false;
+    private HashNode currentNode;
+
+    public HashNode getCurrentNode() {
+        return currentNode;
+    }
+
+    public void setCurrentNode(HashNode currentNode) {
+        this.currentNode = currentNode;
+    }
+
+    private MemberDecl lastMethod;
 
     public IdentificationTable(ErrorReporter reporter){
         this.reporter = reporter;
-        this.allTables = new Stack<>();
-        this.latestEntry = new HashMap<>();
+        this.allTables = new HashMap<String, HashNode>();
     }
+
+    public void changeClassView(String className){
+        currentNode = allTables.get(className);
+    }
+
     public void insertClass(String id, Declaration attribute){
-        insert(id, attribute);
-    }
-    public int insert(String id, Declaration attribute){
-        latestEntry = allTables.peek();
-        if (latestEntry.get(id) != null){
-            System.out.println("Duplicate Found, ID: " + id + " Attribute: " + attribute);
-            //TODO Print Table
-            System.out.println(latestEntry);
-            System.exit(4);
-            return 0;
-        }
-        //i >= 3 -> Greater than or equal to the "var" levels.
-        Stack<HashMap<String, Declaration>> copiedStack =
-                (Stack<HashMap<String, Declaration>>)allTables.clone();
-
-        for (int i = getLevelDepth() - 1; i >= 3; i--){
-            if (copiedStack.pop().get(id) != null){
-                System.out.println("Duplicate Found, ID: " + id + " Attribute: " + attribute);
-                //TODO Print Table
-                System.exit(4);
-                return 0;
-            }
-        }
-        if (attribute instanceof MemberDecl && getLevelDepth() == 2 && ((MemberDecl)attribute).isStatic){
-            if (Identification.debug){
-                System.out.println("Context is static");
-            }
-            staticContext = true;
-        }
-        latestEntry.put(id, attribute);
-        allTables.pop();
-        allTables.push(latestEntry);
-        return 1;
+        allTables.put(id, new HashNode(id, attribute, null, 0));
+        currentNode = allTables.get(id);
     }
 
-    public Declaration findMethodInClass(String className, String method){
-        for (HashMap<String, Declaration> h : allTables){
-            if (h.get(className) != null){
-                if (h.get(className))
+    public boolean anyDuplicates(String id){
+        HashNode copiedNode = new HashNode(currentNode);
+        while (copiedNode != null && copiedNode.getNodeLevel() != 0){
+            if (copiedNode.getKey().equals(id)){
+                return true;
             }
-            else{
+            copiedNode = copiedNode.getPreviousNode();
+        }
+        if (copiedNode != null && copiedNode.getKey().equals(id)){
+            return true;
+        }
+        return false;
+    }
+    public void insert(String id, Declaration attribute){
 
+        if (currentNode != null){
+            if (!anyDuplicates(id)) {
+                currentNode.getNextLevel().put(id, new HashNode(id, attribute, null,
+                        currentNode.getNodeLevel() + 1));
+                currentNode = currentNode.getNextLevel().get(id);
             }
+        }
+        else{
+            insertClass(id, attribute);
         }
     }
-
-    public Declaration find(String id){
-        Declaration attribute = null;
-        Stack<HashMap<String, Declaration>> copiedStack =
-                (Stack<HashMap<String, Declaration>>)allTables.clone();
-        for (int i = getLevelDepth() - 1; i >=0; i--){
-            attribute = copiedStack.pop().get(id);
-            if (attribute != null){
-                return attribute;
+    public Declaration findLocal(String className){
+        HashNode copyNode = new HashNode(currentNode);
+        while (copyNode != null) {
+            if (copyNode.getKey().equals(className)) {
+                return copyNode.getNodeDeclaration();
             }
+            copyNode = copyNode.getPreviousNode();
         }
-        System.out.println("ID: " + id + " not found at " + getLevelDepth());
         return null;
     }
 
+    public boolean isStaticContext(){
+        return currentNode.isStatic();
+    }
+
+    public MemberDecl getCurrentMethod(){
+        HashNode copiedNode = new HashNode(currentNode);
+        while (copiedNode != null && copiedNode.getNodeLevel() >= 1){
+            copiedNode = copiedNode.getPreviousNode();
+        }
+        if (copiedNode == null || copiedNode.getNodeLevel() != 1){
+            return null;
+        }
+        return (MemberDecl) copiedNode.getNodeDeclaration();
+    }
+
+    public int getValue(Declaration c){
+        if (c instanceof ClassDecl){
+            return 0;
+        }
+        else if (c instanceof MemberDecl){
+            return 1;
+        }
+        else if (c instanceof ParameterDecl){
+            return 2;
+        }
+        else{
+            return 3;
+        }
+    }
+    public Declaration findClass(String id){
+        if (allTables.get(id) != null){
+            return allTables.get(id).getNodeDeclaration();
+        }
+        return null;
+    }
+
+    public Declaration find(String id){
+        //First, check immediate descendents
+        if (currentNode.getNextLevel() != null && currentNode.getNextLevel().get(id) != null){
+            currentNode = currentNode.getNextLevel().get(id);
+            return currentNode.getNodeDeclaration();
+        }
+        //No luck? Start working through previous nodes
+        else{
+            while (currentNode.getPreviousNode() != null){
+               if (currentNode.getNextLevel().get(id) != null){
+                   currentNode = currentNode.getNextLevel().get(id);
+                   return currentNode.getNodeDeclaration();
+               }
+               currentNode = currentNode.getPreviousNode();
+            }
+            if (currentNode.getKey().equals(id))
+                return currentNode.getNodeDeclaration();
+        }
+        //Last shot is to search all the classes.
+        for (int i = 0; i < allTables.size(); i++){
+            HashNode node = allTables.get(allTables.keySet().toArray()[i]);
+            if (allTables.get(id) != null){
+                currentNode = findClassNode(node);
+                return allTables.get(id).getNodeDeclaration();
+            }
+            if (node.getNextLevel().get(id) != null){
+                currentNode = findClassNode(node);
+                if (currentNode.getNodeDeclaration() instanceof MemberDecl){
+                    lastMethod = (MethodDecl) currentNode.getNodeDeclaration();
+                }
+                return node.getNextLevel().get(id).getNodeDeclaration();
+            }
+        }
+        return null;
+    }
+
+    public HashNode findClassNode(HashNode node){
+        while (node.getPreviousNode() != null){
+            node = node.getPreviousNode();
+        }
+        return node;
+    }
+    public Declaration findMethodInClass(String className, String method){
+        try {
+            return allTables.get(className).getNextLevel().get(method).getNodeDeclaration();
+        } catch (NullPointerException e){
+            return null;
+        }
+    }
+
     public int getLevelDepth(){
-        return allTables.size();
+        return currentNode.getNodeLevel();
+    }
+
+    public String getCurrentClassName(){
+        HashNode copiedNode = new HashNode(currentNode);
+        while (copiedNode != null && copiedNode.getNodeLevel() != 0){
+            copiedNode = copiedNode.getPreviousNode();
+        }
+        if (copiedNode != null) {
+            return copiedNode.getKey();
+        }
+        else{
+            return null;
+        }
     }
 
     public void openScope(){
-        if (Identification.debug) System.out.println("Opening Scope");
-        latestEntry = new HashMap<String, Declaration>();
-        allTables.push(latestEntry);
-    }
-
-    public void openScope(HashMap<String, Declaration> levelTable){
-        latestEntry = levelTable;
-        allTables.push(latestEntry);
-    }
-
-    public boolean isStaticContext(){
-        return staticContext;
+        //nop
     }
 
     public void closeScope(){
-        if (isStaticContext() && getLevelDepth() == 1){
-            if (Identification.debug) System.out.println("Dropping static context");
-            staticContext = false;
-        }
-        HashMap<String, Declaration> value = allTables.pop();
-        if (Identification.debug) System.out.println("Closing scope, " + value + " popped");
+        //nop
+    }
+
+    private void TypeError(String error, SourcePosition pos){
+        reporter.reportError("*** line " + pos.start + " ***Type Check error: " + error);
     }
 }
