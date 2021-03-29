@@ -9,6 +9,7 @@ import miniJava.SyntacticAnalyzer.SourcePosition;
 import miniJava.SyntacticAnalyzer.Token;
 import miniJava.SyntacticAnalyzer.TokenKind;
 
+import java.lang.reflect.Method;
 import java.util.Iterator;
 
 public class Identification implements Visitor<Object, Object> {
@@ -30,86 +31,107 @@ public class Identification implements Visitor<Object, Object> {
         if (debug) System.out.println("Entering visitPackage");
         visitPackage(ast, table);
     }
+    public void insertPredefined(){
+        ClassDecl StringDecl = new ClassDecl("String", new FieldDeclList(), new MethodDeclList(), null);
+        StringDecl.type = new BaseType(TypeKind.UNSUPPORTED, null);
+        table.insertClass("String", StringDecl);
 
+        MethodDeclList printMethods = new MethodDeclList();
+        MemberDecl println = new FieldDecl(false, false, new BaseType(TypeKind.VOID, null),
+                "println", null);
+        ParameterDeclList printlnParameters = new ParameterDeclList();
+        ParameterDecl printlnNParameter = new ParameterDecl(new BaseType(TypeKind.INT, null), "n", null);
+        printlnParameters.add(printlnNParameter);
+        MethodDecl printlnMethod = new MethodDecl(println, printlnParameters, new StatementList(), null);
+        printMethods.add(printlnMethod);
+        ClassDecl printStreamDecl = new ClassDecl("_PrintStream", new FieldDeclList(), printMethods, null);
+        Identifier printStreamID = new Identifier(new Token
+                (TokenKind.ID, "_PrintStream", new SourcePosition()));
+        printStreamDecl.type = new ClassType(printStreamID, new SourcePosition());
+        table.insertClass("_PrintStream", printStreamDecl);
+        table.insert("println", printlnMethod);
+        table.insert("n", printlnNParameter);
+
+        Identifier sysId = new Identifier(new Token(TokenKind.ID, "System", new SourcePosition()));
+        FieldDeclList sysFields = new FieldDeclList();
+        FieldDecl outField = new FieldDecl(false, true, new ClassType(printStreamID, null), "out", null);
+        sysFields.add(outField);
+        ClassDecl sysDecl = new ClassDecl("System", sysFields, new MethodDeclList(), null);
+        sysDecl.type = new ClassType(sysId, new SourcePosition());
+        table.insertClass("System", sysDecl);
+        table.insert("out", outField);
+    }
     @Override
     public Object visitPackage(Package prog, Object arg) {
         table.openScope();
-
-        //Add classes to table
-        for (ClassDecl cd : prog.classDeclList){
+        //Add predefined classes to table
+        insertPredefined();
+        //Add source classes to table
+        for (ClassDecl cd : prog.classDeclList) {
             if (debug) System.out.println("Attempting to insert " + cd.name + ", " + cd);
-            table.insert(cd.name, cd);
+            for (FieldDecl f : cd.fieldDeclList) {
+                table.insert(f.name, f);
+            }
+            for (MethodDecl md : cd.methodDeclList) {
+                table.insert(md.name, md);
+            }
+            //Then visit
         }
-        //Then visit
 
-        for (ClassDecl cd : prog.classDeclList){
-            if (debug) System.out.println("Attempting to visit " + cd);
-            cd.visit(this, arg);
-        }
+            for (ClassDecl cd : prog.classDeclList) {
+                if (debug) System.out.println("Attempting to visit " + cd);
+                cd.visit(this, arg);
+            }
 
-        table.closeScope();
-        return null;
+            table.closeScope();
+            return null;
     }
 
     @Override
     public Object visitClassDecl(ClassDecl cd, Object arg) {
+        //Probably not needed anymore since implementation continuity, but removing it seems like a needless risk?
         workingClass = new ClassType(new Identifier(new Token(TokenKind.ID, cd.name, null)), null);
         table.openScope();
-        for (MethodDecl m: cd.methodDeclList){
-            if (debug) System.out.println("Attempting to insert " + m.name + ", " + m);
-            table.insert(m.name, m);
-        }
-        for (FieldDecl fd: cd.fieldDeclList){
-            if (debug) System.out.println("Attempting to insert " + fd.name + ", " + fd);
-            table.insert(fd.name, fd);
-        }
+        table.insertClass(cd.name, cd);
+        table.openScope();
 
+        for (FieldDecl f : cd.fieldDeclList){
+            if (debug) System.out.println("Attempting to visit " + f);
+            f.visit(this, arg);
+        }
         for (MethodDecl m: cd.methodDeclList){
             if (debug) System.out.println("Attempting to visit " + m);
             m.visit(this, arg);
         }
-        for (FieldDecl fd : cd.fieldDeclList){
-            if (debug) System.out.println("Attempting to visit " + fd);
-        }
+
+        table.closeScope();
         table.closeScope();
         return null;
     }
 
     @Override
     public Object visitFieldDecl(FieldDecl fd, Object arg) {
-        if (debug) System.out.println("Attempting to visit " + fd);
+        table.insert(fd.name, fd);
         fd.type.visit(this, arg);
         return null;
     }
 
     @Override
     public Object visitMethodDecl(MethodDecl md, Object arg) {
+        if (md.type instanceof ClassType){
+            if(table.find(((ClassType)md.type).className.spelling) == null){
+                TypeError("Method declaration returns DNE", md.posn);
+            }
+        }
+        table.insert(md.name, md);
         table.openScope();
-//        for (ParameterDecl pd : md.parameterDeclList){
-//            if (debug) System.out.println("Attempting to insert " + pd.name + ", " + pd);
-//        }
-
-//        for (Statement s: md.statementList){
-//            if (debug) System.out.println("Attempting to insert " + s);
-//        }
 
         for (ParameterDecl pd: md.parameterDeclList){
-            if (debug) System.out.println("Attempting to visit " + pd);
             pd.visit(this, arg);
         }
         table.openScope();
-
         for (Statement s: md.statementList){
-            if (debug) System.out.println("Attempting to visit " + s);
-            TypeDenoter type = (TypeDenoter) s.visit(this, arg);
-            if (s instanceof ReturnStmt && !type.equals((TypeDenoter) md.type)){
-                TypeError("Return statement fails to match function return type", s.posn);
-            }
             s.visit(this, arg);
-        }
-        if (md.type.typeKind != TypeKind.NULL){
-            if (debug) System.out.println("Attempting to visit " + md);
-            md.type.visit(this, arg);
         }
 
         table.closeScope();
@@ -119,8 +141,13 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitParameterDecl(ParameterDecl pd, Object arg) {
-        if (debug) System.out.println("Attempting to visit " + pd);
+        table.insert(pd.name, pd);
         pd.type.visit(this, arg);
+        if (pd.type instanceof ClassType){
+            if (table.find(((ClassType) pd.type).className.spelling) == null){
+                TypeError("Undefined class referenced", pd.posn);
+            }
+        }
         return null;
     }
 
@@ -199,6 +226,7 @@ public class Identification implements Visitor<Object, Object> {
         TypeDenoter reference = (TypeDenoter) stmt.varDecl.visit(this, null);
         TypeDenoter expression = (TypeDenoter) stmt.initExp.visit(this, null);
         if (!reference.equals(expression)){
+            boolean skip = false;
             if (reference instanceof ClassType && expression instanceof ClassType){
                 String name1 = ((ClassType) reference).className.spelling;
                 String name2 = ((ClassType) expression).className.spelling;
@@ -210,11 +238,14 @@ public class Identification implements Visitor<Object, Object> {
                             reference.posn);
                 }
             }
+            else if (reference instanceof ClassType){
+                if (debug) System.out.println("Warning: Using class name as variable name.");
+            }
             else{
                 TypeError("Variable declaration attempts assignment of expression to incompatible reference",
                         reference.posn);
             }
-            return new BaseType(TypeKind.ERROR, stmt.posn);
+            if (!skip) return new BaseType(TypeKind.ERROR, stmt.posn);
         }
         return reference;
     }
@@ -252,23 +283,57 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitCallStmt(CallStmt stmt, Object arg) {
-        ExprList argumentList = stmt.argList;
-        for (Expression e : argumentList){
-            if (debug) System.out.println("Attempting to visit " + e);
-            TypeDenoter expressionType = (TypeDenoter) e.visit(this, arg);
-            if (expressionType.typeKind == TypeKind.ERROR || expressionType.typeKind ==
-            TypeKind.UNSUPPORTED) return null;
+        stmt.methodRef.visit(this, arg);
+        for (Expression expression : stmt.argList) {
+            expression.visit(this, arg);
         }
+        if (!(stmt.methodRef.declaration instanceof MethodDecl)){
+            TypeError("Illegal call to non-function", stmt.posn);
+            return null;
+        }
+        MethodDecl callMethod = (MethodDecl) stmt.methodRef.declaration;
+        if (table.isStaticContext() && !callMethod.isStatic && !(stmt.methodRef instanceof QualRef)){
+            TypeError("Static method in illegal context", stmt.posn);
+        }
+        if (stmt.methodRef instanceof QualRef) {
+            QualRef reference = (QualRef) stmt.methodRef;
+            if (reference.ref instanceof IdRef) {
+                IdRef idReference = (IdRef) reference.ref;
+                Declaration idDeclaration = idReference.declaration;
+                if (idDeclaration.type instanceof ClassType && idDeclaration instanceof VarDecl) {
 
+
+                    //TODO Possible issues with class searching.
+                    String anotherClassName = ((ClassType) idDeclaration.type).className.spelling;
+                    MethodDecl otherClass = (MethodDecl) table.findMethodInClass(anotherClassName, callMethod.name);
+                    if (otherClass.isPrivate) {
+                        TypeError("Other class private method called", stmt.posn);
+                    }
+                } else if (idDeclaration instanceof ClassDecl) {
+                    if (table.findMethodInClass(idDeclaration.name, callMethod.name) instanceof MethodDecl) {
+                        MethodDecl methodInOtherClass = (MethodDecl) table.findMethodInClass(idDeclaration.name,
+                                callMethod.name);
+                        if (!methodInOtherClass.isStatic) {
+                            TypeError("Static method illegal in current context", methodInOtherClass.posn);
+                        }
+                        if (methodInOtherClass.isPrivate) {
+                            TypeError("Private method illegal in current context", methodInOtherClass.posn);
+                        }
+                    } else {
+                        TypeError("Member does not exist in class", callMethod.posn);
+                    }
+                }
+            }
+        }
         return null;
     }
 
     @Override
     public Object visitReturnStmt(ReturnStmt stmt, Object arg) {
         if (stmt.returnExpr != null){
-            return stmt.returnExpr.visit(this, null);
+            stmt.returnExpr.visit(this, null);
         }
-        return new BaseType(TypeKind.VOID, stmt.posn);
+        return null;
     }
 
     @Override
@@ -475,41 +540,11 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitCallExpr(CallExpr expr, Object arg) {
-        TypeDenoter returnedType = null;
-        if (debug) System.out.println("Attempting to visit " + expr);
-        TypeDenoter functionType = (TypeDenoter) expr.functionRef.visit(this, arg);
-        if (errorUnsupportedCheck(functionType)){
-            returnedType = new BaseType(TypeKind.ERROR, null);
-        }
-        else if (functionType.typeKind == TypeKind.VOID){
-            TypeError("Attempted return of a void function", expr.posn);
-            System.exit(4);
-        }
-        else{
-            returnedType = functionType;
-            ExprList argumentList = expr.argList;
-            MethodDecl castDeclaration = (MethodDecl) expr.functionRef.declaration;
-            if (castDeclaration.parameterDeclList.size() != argumentList.size()){
-                returnedType = new BaseType(TypeKind.UNSUPPORTED, null);
-                TypeError("Function call error, incorrect number of arguments", castDeclaration.posn);
-            }
-            Iterator<ParameterDecl> parameterListIterator = castDeclaration.parameterDeclList.iterator();
-            Iterator<Expression> argumentIterator = argumentList.iterator();
-
-
-            while (parameterListIterator.hasNext()){
-                ParameterDecl parameterDecl = parameterListIterator.next();
-                Expression expression = argumentIterator.next();
-                if (debug) System.out.println("Attempting to visit " + expression);
-                TypeDenoter argumentType = (TypeDenoter) expression.visit(this, arg);
-                if (argumentType != parameterDecl.type){
-                    returnedType = new BaseType(TypeKind.ERROR, null);
-                    TypeError("Function call argument does not match declared type", argumentType.posn);
-                }
-            }
-        }
-
-        return returnedType;
+       expr.functionRef.visit(this, arg);
+       for (Expression expression : expr.argList){
+           expression.visit(this, table);
+       }
+       return null;
     }
 
     @Override
@@ -527,7 +562,8 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitNewObjectExpr(NewObjectExpr expr, Object arg) {
-        return expr.classtype;
+        expr.classtype.visit(this, null);
+        return null;
     }
 
     @Override
@@ -549,53 +585,81 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitThisRef(ThisRef ref, Object arg) {
-        return workingClass;
+        ref.declaration = table.find(table.getCurrentClassName());
+        if (table.getCurrentMethod().isStatic)
+            TypeError("Use of \"this\" in a static method", ref.posn);
+        return null;
     }
 
     @Override
     public Object visitIdRef(IdRef ref, Object arg) {
-        TypeDenoter returnedType = null;
         if (ref.id.spelling.equals(this.forbiddenVariable)){
-            TypeError(ref.id.spelling + " used in illegal position", ref.posn);
+            TypeError("Self-referencing in initialization", ref.posn);
         }
-        if (debug) System.out.println("Attempting to visit " + ref);
-        TypeDenoter idType = (TypeDenoter) ref.id.visit(this, arg);
-        if (idType == null){
-            returnedType = nullType;
+        ref.id.visit(this, arg);
+        ref.declaration = ref.id.declaration;
+        if (ref.declaration instanceof MethodDecl){
+            MethodDecl methodDeclaration = (MethodDecl) ref.declaration;
+            if (methodDeclaration.isStatic != table.getCurrentMethod().isStatic){
+                TypeError("Reference does not match static context", ref.posn);
+            }
         }
-        else if (errorUnsupportedCheck(idType)){
-            returnedType = errorType;
-        } else{
-            returnedType = idType;
+        else if (ref.declaration instanceof FieldDecl){
+            FieldDecl fieldDeclaration = (FieldDecl) ref.declaration;
+            if (fieldDeclaration.isStatic != table.getCurrentMethod().isStatic){
+                TypeError ("Reference does not match static context", ref.posn);
+            }
         }
-        return returnedType;
+        return null;
     }
 
     @Override
     public Object visitQRef(QualRef ref, Object arg) {
-        TypeDenoter returnedType = null;
-        TypeDenoter internalType = (TypeDenoter) ref.id.visit(this, arg);
-        if (errorUnsupportedCheck(internalType)){
-            returnedType = errorType;
+        ref.ref.visit(this, arg);
+        String currentClassName = table.getCurrentClassName();
+        if (ref.ref.declaration.type instanceof ClassType){
+            String className = ((ClassType) ref.ref.declaration.type).className.spelling;
+            table.changeClassView(className);
         }
-        else if (ref.id.declaration instanceof MethodDecl){
-            TypeError("Reference does not denote a variable", ref.posn);
-            System.exit(4);
+        if (ref.ref.declaration.type.typeKind != TypeKind.ARRAY && !ref.id.spelling.equals("length")){
+            ref.id.visit(this, table);
         }
         else{
-            returnedType = internalType;
+            ref.id.declaration = new FieldDecl(false, false,
+                    new BaseType(TypeKind.INT, ref.ref.posn), "length", ref.ref.posn);
         }
-        return returnedType;
+        ref.declaration = ref.id.declaration;
+        table.changeClassView(currentClassName);
+        if (ref.ref instanceof IdRef){
+            if (ref.id.declaration instanceof FieldDecl){
+                FieldDecl fieldDeclaration = (FieldDecl) ref.id.declaration;
+                if (table.isStaticContext() && !fieldDeclaration.isStatic){
+                    TypeError("Failure to meet static context", ref.posn);
+                }
+            }
+        }
+        if (ref.ref.declaration instanceof MethodDecl){
+            TypeError("Function ref cannot appear within qualified ref", ref.posn);
+        }
+        return null;
     }
 
     @Override
     public Object visitIdentifier(Identifier id, Object arg) {
         id.declaration = table.find(id.spelling);
         if (id.declaration == null){
-            TypeError(id + " has not been declared", id.posn);
+            TypeError(id.spelling + " has not been declared", id.posn);
             System.exit(4);
         }
-        return id.declaration.type;
+        String className = table.getCurrentClassName();
+        if (id.declaration instanceof FieldDecl && table.findMethodInClass(className, id.spelling)
+                == null){
+            FieldDecl fieldDeclaration = (FieldDecl) id.declaration;
+            if (fieldDeclaration.isPrivate){
+                TypeError("Private field accessed in illegal context", fieldDeclaration.posn);
+            }
+        }
+        return null;
     }
 
     @Override

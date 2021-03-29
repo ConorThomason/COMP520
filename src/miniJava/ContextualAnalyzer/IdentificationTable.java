@@ -21,7 +21,9 @@ public class IdentificationTable {
         this.allTables = new Stack<>();
         this.latestEntry = new HashMap<>();
     }
-
+    public void insertClass(String id, Declaration attribute){
+        insert(id, attribute);
+    }
     public int insert(String id, Declaration attribute){
         latestEntry = allTables.peek();
         if (latestEntry.get(id) != null){
@@ -53,6 +55,17 @@ public class IdentificationTable {
         allTables.pop();
         allTables.push(latestEntry);
         return 1;
+    }
+
+    public Declaration findMethodInClass(String className, String method){
+        for (HashMap<String, Declaration> h : allTables){
+            if (h.get(className) != null){
+                if (h.get(className))
+            }
+            else{
+
+            }
+        }
     }
 
     public Declaration find(String id){
