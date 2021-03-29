@@ -1,5 +1,6 @@
 package miniJava.ContextualAnalyzer;
 
+import com.sun.org.apache.xalan.internal.xsltc.compiler.util.IntType;
 import com.sun.org.apache.xalan.internal.xsltc.compiler.util.TypeCheckError;
 import miniJava.AbstractSyntaxTrees.*;
 import miniJava.AbstractSyntaxTrees.Package;
@@ -84,13 +85,13 @@ public class Identification implements Visitor<Object, Object> {
     @Override
     public Object visitMethodDecl(MethodDecl md, Object arg) {
         table.openScope();
-        for (ParameterDecl pd : md.parameterDeclList){
-            if (debug) System.out.println("Attempting to insert " + pd.name + ", " + pd);
-        }
+//        for (ParameterDecl pd : md.parameterDeclList){
+//            if (debug) System.out.println("Attempting to insert " + pd.name + ", " + pd);
+//        }
 
-        for (Statement s: md.statementList){
-            if (debug) System.out.println("Attempting to insert " + s);
-        }
+//        for (Statement s: md.statementList){
+//            if (debug) System.out.println("Attempting to insert " + s);
+//        }
 
         for (ParameterDecl pd: md.parameterDeclList){
             if (debug) System.out.println("Attempting to visit " + pd);
@@ -154,7 +155,7 @@ public class Identification implements Visitor<Object, Object> {
         return null;
     }
     public boolean errorUnsupportedCheck(TypeDenoter given){
-        if (given.equals(nullType)){
+        if (given == null){
             return true;
         }
        if (!given.equals(errorType) || !given.equals(unsupportedType)){
@@ -178,6 +179,10 @@ public class Identification implements Visitor<Object, Object> {
         this.forbiddenVariable = null;
         if (debug) System.out.println("expressionType: " + expressionType);
         if (errorUnsupportedCheck(expressionType)){
+            if (expressionType == null){
+                TypeDenoter reference = (TypeDenoter) stmt.varDecl.visit(this, null);
+                return reference;
+            }
             if(!stmt.varDecl.type.equals(expressionType)){
                 TypeError("Type Mismatch - VarDeclStmt", expressionType.posn);
             }
@@ -229,7 +234,20 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitIxAssignStmt(IxAssignStmt stmt, Object arg) {
-        return null;
+        TypeDenoter returnedType = null;
+        TypeDenoter expressionType = (TypeDenoter) stmt.ix.visit(this, arg);
+        TypeDenoter referenceType = (TypeDenoter) stmt.ref.visit(this, arg);
+        if (errorUnsupportedCheck(expressionType, referenceType)){
+            returnedType = errorType;
+        }
+        else if (!expressionType.equals(new BaseType(TypeKind.INT, null))){
+            returnedType = errorType;
+            TypeError("Index cannot be derived as an integer", expressionType.posn);
+        }
+        else{
+            returnedType = ((ArrayType)referenceType).eltType;
+        }
+        return returnedType;
     }
 
     @Override
@@ -463,6 +481,10 @@ public class Identification implements Visitor<Object, Object> {
         if (errorUnsupportedCheck(functionType)){
             returnedType = new BaseType(TypeKind.ERROR, null);
         }
+        else if (functionType.typeKind == TypeKind.VOID){
+            TypeError("Attempted return of a void function", expr.posn);
+            System.exit(4);
+        }
         else{
             returnedType = functionType;
             ExprList argumentList = expr.argList;
@@ -538,7 +560,10 @@ public class Identification implements Visitor<Object, Object> {
         }
         if (debug) System.out.println("Attempting to visit " + ref);
         TypeDenoter idType = (TypeDenoter) ref.id.visit(this, arg);
-        if (errorUnsupportedCheck(idType)){
+        if (idType == null){
+            returnedType = nullType;
+        }
+        else if (errorUnsupportedCheck(idType)){
             returnedType = errorType;
         } else{
             returnedType = idType;
@@ -548,19 +573,29 @@ public class Identification implements Visitor<Object, Object> {
 
     @Override
     public Object visitQRef(QualRef ref, Object arg) {
-        return nullType;
+        TypeDenoter returnedType = null;
+        TypeDenoter internalType = (TypeDenoter) ref.id.visit(this, arg);
+        if (errorUnsupportedCheck(internalType)){
+            returnedType = errorType;
+        }
+        else if (ref.id.declaration instanceof MethodDecl){
+            TypeError("Reference does not denote a variable", ref.posn);
+            System.exit(4);
+        }
+        else{
+            returnedType = internalType;
+        }
+        return returnedType;
     }
 
     @Override
     public Object visitIdentifier(Identifier id, Object arg) {
-        if (id.declaration != null) {
-            return id.declaration.type;
-        }
-        else{
-            TypeError(id.spelling + " not declared", id.posn);
+        id.declaration = table.find(id.spelling);
+        if (id.declaration == null){
+            TypeError(id + " has not been declared", id.posn);
             System.exit(4);
         }
-        return null;
+        return id.declaration.type;
     }
 
     @Override
