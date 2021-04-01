@@ -11,7 +11,7 @@ public class Identifier extends Terminal {
 
   public Declaration declaration;
   public Identifier (Token t) {
-    super (t);
+    super(t);
   }
 
   public <A,R> R visit(Visitor<A,R> v, A o) {

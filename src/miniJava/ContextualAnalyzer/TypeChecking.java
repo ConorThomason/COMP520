@@ -7,6 +7,8 @@ import miniJava.SyntacticAnalyzer.SourcePosition;
 import miniJava.SyntacticAnalyzer.Token;
 import miniJava.SyntacticAnalyzer.TokenKind;
 
+import java.lang.reflect.Member;
+
 
 public class TypeChecking implements Visitor<Object, Object> {
    final static boolean debug = true;
@@ -16,9 +18,12 @@ public class TypeChecking implements Visitor<Object, Object> {
     private ClassType workingClass;
     private String forbiddenVariable;
 
+    public boolean systemUse = false;
+    public HashNode workingArea;
     public BaseType errorType = new BaseType(TypeKind.ERROR, null);
     public BaseType unsupportedType = new BaseType(TypeKind.UNSUPPORTED, null);
     public BaseType nullType = new BaseType(TypeKind.NULL, null);
+    public Declaration edgeCase;
 
     public TypeChecking(Package ast, ErrorReporter reporter){
         this.reporter = reporter;
@@ -117,10 +122,13 @@ public class TypeChecking implements Visitor<Object, Object> {
             }
             for (FieldDecl f : cd.fieldDeclList) {
                 table.insert(f.name, f);
+
             }
+
             for (MethodDecl md : cd.methodDeclList) {
                 table.insert(md.name, md);
             }
+
             //Then visit
         }
 
@@ -139,7 +147,6 @@ public class TypeChecking implements Visitor<Object, Object> {
         workingClass = new ClassType(new Identifier(new Token(TokenKind.ID, cd.name, null)), null);
         table.openScope();
         table.openScope();
-
         for (FieldDecl f : cd.fieldDeclList){
             if (debug) System.out.println("Attempting to visit " + f);
             f.visit(this, arg);
@@ -172,7 +179,16 @@ public class TypeChecking implements Visitor<Object, Object> {
             }
         }
         table.insert(md.name, md);
+        if (md.isStatic){
+            table.getCurrentNode().setIsStatic(true);
+        }
+        if (md.isPrivate){
+            table.getCurrentNode().setIsPrivate(true);
+        }
         table.openScope();
+        for (ParameterDecl pd : md.parameterDeclList){
+            table.insert(pd.name, pd);
+        }
 
         for (ParameterDecl pd: md.parameterDeclList){
             pd.visit(this, arg);
@@ -180,7 +196,12 @@ public class TypeChecking implements Visitor<Object, Object> {
         table.openScope();
         for (Statement s: md.statementList){
             TypeDenoter typeDenoter = (TypeDenoter) s.visit(this, arg);
+            if (s instanceof ReturnStmt && (md.type.typeKind == TypeKind.VOID && s.visit(this, null) != TypeKind.VOID)){
+                TypeError("Attempting to return from a void function", s.posn);
+            }
             if (s instanceof ReturnStmt && !typesEqual(typeDenoter, toReturn)){
+                ReturnStmt returnExpr = ((ReturnStmt) s);
+                if (returnExpr.returnExpr.getClass().equals("BinaryExpr"))
                 TypeError("Return statement has type that doesn't match function return type", s.posn);
             }
         }
@@ -195,6 +216,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         table.insert(pd.name, pd);
         pd.type.visit(this, arg);
         if (pd.type instanceof ClassType){
+            HashNode previousNode = table.getCurrentNode();
             if (table.find(((ClassType) pd.type).className.spelling) == null){
                 TypeError("Undefined class referenced", pd.posn);
             }
@@ -217,13 +239,13 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitClassType(ClassType type, Object arg) {
-        type.className.visit(this, table);
+        type.className.visit(this, null);
         return getType(type);
     }
 
     @Override
     public Object visitArrayType(ArrayType type, Object arg) {
-        type.eltType.visit(this, table);
+        type.eltType.visit(this, null);
         return getType(type);
     }
 
@@ -261,8 +283,6 @@ public class TypeChecking implements Visitor<Object, Object> {
         TypeDenoter expressionType = (TypeDenoter) stmt.initExp.visit(this, null);
         this.forbiddenVariable = null;
         TypeDenoter referenceType = (TypeDenoter) stmt.varDecl.visit(this, null);
-
-
         if (stmt.initExp instanceof RefExpr){
             RefExpr referenceExpression = (RefExpr) stmt.initExp;
             if (referenceExpression.ref.declaration instanceof ClassDecl){
@@ -271,11 +291,17 @@ public class TypeChecking implements Visitor<Object, Object> {
             if (referenceExpression.ref.declaration instanceof MethodDecl){
                 TypeError("Variable declaration attempts assignment of method", stmt.posn);
             }
+            if (referenceExpression.ref instanceof QualRef){
+                if (((QualRef)referenceExpression.ref).id.declaration instanceof MethodDecl){
+                    TypeError("Cannot assign method to variable", stmt.posn);
+                }
+            }
         }
         if (!typesEqual(referenceType, expressionType) || !referenceType.equals(expressionType)){
             if (referenceType instanceof ClassType && expressionType instanceof ClassType ){
                 Identifier i1 = ((ClassType) referenceType).className;
                 Identifier i2 = ((ClassType) expressionType).className;
+                System.out.println(i1.declaration.type);
                 if (i1.declaration == null || i2.declaration == null){
                     TypeError("Variable declaration attempts assignment of class type", stmt.posn);
                 }
@@ -295,6 +321,7 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitAssignStmt(AssignStmt stmt, Object arg) {
+        HashNode previousClass = table.getCurrentNode();
         TypeDenoter referenceType = (TypeDenoter) stmt.ref.visit(this, null);
         TypeDenoter expressionType = (TypeDenoter) stmt.val.visit(this, null);
         if (stmt.val instanceof RefExpr){
@@ -315,14 +342,14 @@ public class TypeChecking implements Visitor<Object, Object> {
             if (qualifiedReference.ref.declaration instanceof ClassDecl){
                 return new BaseType(TypeKind.INT, stmt.posn);
             }
-            if (qualifiedReference.ref.declaration.type.typeKind == TypeKind.ARRAY &&
+            if (qualifiedReference.ref.declaration != null && qualifiedReference.ref.declaration.type.typeKind == TypeKind.ARRAY &&
                     qualifiedReference.id.spelling.equals("length")){
                 TypeError("Array length in assignment is illegal", stmt.posn);
                 return new BaseType(TypeKind.ERROR, stmt.posn);
 
             }
         }
-        if (!(referenceType.typeKind == expressionType.typeKind)){
+        if (!(typesEqual(referenceType, expressionType))){
             TypeError("Attempt to assign incompatible expression to reference", stmt.posn);
             return new BaseType(TypeKind.ERROR, stmt.posn);
         }
@@ -349,59 +376,73 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitCallStmt(CallStmt stmt, Object arg) {
-        if (!(stmt.methodRef.declaration instanceof MethodDecl)){
-            TypeError("Illegal call to non-function", stmt.posn);
-            return new BaseType(TypeKind.ERROR, stmt.posn);
+        //Identification
+        stmt.methodRef.visit(this, null);
+        for (Expression e : stmt.argList){
+            e.visit(this, null);
         }
-        MethodDecl callMethod = (MethodDecl) stmt.methodRef.declaration;
-        if (table.isStaticContext() && !callMethod.isStatic && !(stmt.methodRef instanceof QualRef)){
-            TypeError("Static method in illegal context", stmt.posn);
+        MethodDecl calledMethod = null;
+        if (stmt.methodRef.declaration instanceof MethodDecl) {
+            calledMethod = (MethodDecl) stmt.methodRef.declaration;
         }
-        if (stmt.methodRef instanceof QualRef) {
-            QualRef reference = (QualRef) stmt.methodRef;
-            if (reference.ref instanceof IdRef) {
-                IdRef idReference = (IdRef) reference.ref;
+        if (table.getCurrentNode().isStatic() && !(stmt.methodRef instanceof QualRef) && !calledMethod.isStatic){
+            TypeError("Static method called in non-static context", stmt.posn);
+        }
+        if (stmt.methodRef instanceof QualRef){
+            QualRef qualReference = (QualRef) stmt.methodRef;
+            if (qualReference.ref instanceof IdRef){
+                IdRef idReference = (IdRef) qualReference.ref;
                 Declaration idDeclaration = idReference.declaration;
-                if (idDeclaration.type instanceof ClassType && idDeclaration instanceof VarDecl) {
 
-
-                    //TODO Possible issues with class searching.
-                    String anotherClassName = ((ClassType) idDeclaration.type).className.spelling;
-                    MethodDecl otherClass = (MethodDecl) table.findMethodInClass(anotherClassName, callMethod.name);
-                    if (otherClass.isPrivate) {
-                        TypeError("Other class private method called", stmt.posn);
+                if (idDeclaration instanceof VarDecl && idDeclaration.type instanceof ClassType){
+                    idDeclaration = table.findClass(((ClassType) idDeclaration.type).className.spelling);
+                    MethodDecl differentMethod = (MethodDecl) table.findLevel1FromClass(calledMethod.name,
+                            idDeclaration.name);
+                    if (differentMethod != null && differentMethod.isPrivate){
+                        TypeError("Private method called illegally", stmt.posn);
                     }
-                } else if (idDeclaration instanceof ClassDecl) {
-                    if (table.findMethodInClass(idDeclaration.name, callMethod.name) instanceof MethodDecl) {
-                        MethodDecl methodInOtherClass = (MethodDecl) table.findMethodInClass(idDeclaration.name,
-                                callMethod.name);
-                        if (!methodInOtherClass.isStatic) {
-                            TypeError("Static method illegal in current context", methodInOtherClass.posn);
+                } else if (idDeclaration instanceof ClassDecl){
+                    if (table.findLevel1FromClass(calledMethod.name, idDeclaration.name) instanceof MethodDecl){
+                        MethodDecl differentMethod = (MethodDecl) table.findLevel1FromClass(calledMethod.name,
+                                idDeclaration.name);
+                        if (!differentMethod.isStatic){
+                            TypeError("Static method called illegally", stmt.posn);
                         }
-                        if (methodInOtherClass.isPrivate) {
-                            TypeError("Private method illegal in current context", methodInOtherClass.posn);
+                        if (differentMethod.isPrivate){
+                            TypeError("Private method called illegally", stmt.posn);
                         }
-                    } else {
-                        TypeError("Member does not exist in class", callMethod.posn);
+                    }
+                    else{
+                        TypeError("Member does not exist in class", stmt.posn);
                     }
                 }
             }
         }
-        ParameterDeclList parameters = ((MethodDecl) stmt.methodRef.declaration).parameterDeclList;
-        TypeDenoter returnType = (TypeDenoter) stmt.methodRef.visit(this, null);
-        ExprList parameterList = stmt.argList;
-        if (parameters.size() != parameterList.size()){
-            TypeError("Function call has incorrect number of parameters", stmt.posn);
+        //Type checking
+        if (!(stmt.methodRef.declaration instanceof MethodDecl)){
+            TypeError("Function call references function that doesn't exist", stmt.posn);
+        }
+        ParameterDeclList parameters = null;
+        if (stmt.methodRef.declaration instanceof MethodDecl) {
+            parameters = ((MethodDecl) stmt.methodRef.declaration).parameterDeclList;
+        }
+        TypeDenoter returnType = getType((TypeDenoter) stmt.methodRef.visit(this, null));
+        ExprList parametersFound = stmt.argList;
+
+        if (parameters != null && parameters.size() != parametersFound.size()){
+            TypeError("Incorrect number of parameters provided", stmt.posn);
             return new BaseType(TypeKind.ERROR, stmt.posn);
         }
-        for (int i = 0; i < parameterList.size(); i++){
-            TypeDenoter parameterType = (TypeDenoter) parameters.get(i).type;
-            TypeDenoter listType = (TypeDenoter) parameterList.get(i).visit(this, null);
-            if (!typesEqual(parameterType, listType)){
-                TypeError("Function call has parameter of incorrect type", stmt.posn);
+
+        for (int i = 0; i < parametersFound.size(); i++){
+            TypeDenoter type = getType(parameters.get(i).type);
+            TypeDenoter foundType = getType((TypeDenoter) parametersFound.get(i).visit(this, null));
+            if (!typesEqual(type, foundType)){
+                TypeError("Function call has different type of parameter than required", stmt.posn);
+                return new BaseType(TypeKind.ERROR, stmt.posn);
             }
-            return new BaseType(TypeKind.ERROR, stmt.posn);
         }
+
         return returnType;
     }
 
@@ -600,7 +641,7 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitRefExpr(RefExpr expr, Object arg) {
-        return expr.ref.visit(this, table);
+        return expr.ref.visit(this, null);
     }
 
     @Override
@@ -612,29 +653,34 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitCallExpr(CallExpr expr, Object arg) {
-        if (!(expr.functionRef.declaration instanceof MethodDecl)){
-            TypeError("Function call references function that doesn't exist", expr.posn);
-            System.exit(4);
+        expr.functionRef.visit(this, table);
+        for (Expression e : expr.argList){
+            e.visit(this, table);
         }
 
+        if (!(expr.functionRef.declaration instanceof MethodDecl)) {
+            TypeError("Function call references a function that doesn't exist within scope", expr.posn);
+            return new BaseType(TypeKind.ERROR, expr.posn);
+        }
         MethodDecl methodDeclaration = (MethodDecl) expr.functionRef.declaration;
-        ParameterDeclList listParameters = methodDeclaration.parameterDeclList;
-        TypeDenoter returnType = (TypeDenoter) expr.functionRef.visit(this, null);
-        ExprList expressionParams = expr.argList;
+        ParameterDeclList parameterList = methodDeclaration.parameterDeclList;
+        TypeDenoter returnType = getType((TypeDenoter) expr.functionRef.visit(this, null));
+        ExprList foundParameters = expr.argList;
 
-        if (listParameters.size() != expressionParams.size()){
+        if (parameterList.size() != foundParameters.size()) {
             TypeError("Function call has incorrect number of parameters", expr.posn);
             return new BaseType(TypeKind.ERROR, expr.posn);
         }
-        for (int i = 0; i < listParameters.size(); i++){
-            TypeDenoter listType = (TypeDenoter) listParameters.get(i).type;
-            TypeDenoter expressionType = (TypeDenoter) expressionParams.get(i).visit(this, null);
-            if (!typesEqual(listType, expressionType)){
+
+        for (int i = 0; i < foundParameters.size(); i++){
+            TypeDenoter type = getType(parameterList.get(i).type);
+            TypeDenoter foundType = getType((TypeDenoter) foundParameters.get(i).visit(this,null));
+            if (!typesEqual(type, foundType)) {
                 TypeError("Function call has incorrect parameter type", expr.posn);
                 return new BaseType(TypeKind.ERROR, expr.posn);
             }
         }
-       return returnType;
+        return returnType;
     }
 
     @Override
@@ -676,7 +722,8 @@ public class TypeChecking implements Visitor<Object, Object> {
     @Override
     public Object visitThisRef(ThisRef ref, Object arg) {
         ref.declaration = table.find(table.getCurrentClassName());
-        if (table.getCurrentMethod() != null && table.getCurrentMethod().isStatic) {
+        if (table.findLevel1() instanceof MethodDecl && table.findLevel1() != null &&
+                ((MethodDecl)table.findLevel1()).isStatic) {
             TypeError("Use of \"this\" in a static method", ref.posn);
             System.exit(4);
         }
@@ -689,20 +736,24 @@ public class TypeChecking implements Visitor<Object, Object> {
     @Override
     public Object visitIdRef(IdRef ref, Object arg) {
         if (ref.id.spelling.equals(this.forbiddenVariable)){
-            TypeError("Self-referencing in initialization", ref.posn);
+            TypeError("Variable self-referencing during initialization", ref.posn);
         }
-        ref.id.visit(this, arg);
+
+        ref.id.visit(this, null);
         ref.declaration = ref.id.declaration;
         if (ref.declaration instanceof MethodDecl){
             MethodDecl methodDeclaration = (MethodDecl) ref.declaration;
-            if (methodDeclaration.isStatic != table.getCurrentMethod().isStatic){
-                TypeError("Reference does not match static context", ref.posn);
+            if (table.findLevel1() instanceof MethodDecl &&
+                    (methodDeclaration.isStatic != ((MethodDecl) table.findLevel1()).isStatic)){
+                TypeError("Method accessed is " + methodDeclaration.isStatic + ", but Current Method is " +
+                        ((MethodDecl) table.findLevel1()).isStatic, ref.posn);
             }
         }
         else if (ref.declaration instanceof FieldDecl){
             FieldDecl fieldDeclaration = (FieldDecl) ref.declaration;
-            if (table.getCurrentMethod() != null && fieldDeclaration.isStatic != table.getCurrentMethod().isStatic){
-                TypeError ("Reference does not match static context", ref.posn);
+            if (table.findLevel1() instanceof MethodDecl &&
+                    fieldDeclaration.isStatic != ((MethodDecl) table.findLevel1()).isStatic){
+                TypeError("Reference doesn't meet required static context", ref.posn);
             }
         }
         return getType(ref.declaration.type);
@@ -710,30 +761,43 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitQRef(QualRef ref, Object arg) {
-        TypeDenoter referenceType = (TypeDenoter) ref.ref.visit(this,null);
-        String previousClassName = table.getCurrentClassName();
+        ref.ref.visit(this, table);
+
         if (ref.ref.declaration != null && ref.ref.declaration.type instanceof ClassType){
             String className = ((ClassType) ref.ref.declaration.type).className.spelling;
-            table.changeClassView(className);
+            if (debug) System.out.println("CHANGING CONTEXT - BEGIN");
+            table.changeClassContext(table.findClassNode(className));
         }
-        if (!(referenceType instanceof ClassType)){
-            if (!(referenceType.typeKind == TypeKind.ARRAY) && ref.id.spelling.equals("length")){
-                ref.id.visit(this, table);
-            } else{
-                ref.id.declaration = new FieldDecl(false, false, new BaseType(TypeKind.INT, ref.ref.posn),
-                "length", ref.ref.posn);
-            }
-            ref.declaration = ref.id.declaration;
+        if (ref.ref.declaration != null && ref.ref.declaration.type != null && !(ref.ref.declaration.type.typeKind == TypeKind.ARRAY && ref.id.spelling.equals("length"))){
+            ref.id.visit(this, table);
+        } else{
+            ref.id.declaration = new FieldDecl(false, false, new BaseType(TypeKind.INT, ref.ref.posn), "length", ref.ref.posn);
         }
-        table.find(previousClassName);
+        ref.declaration = ref.id.declaration;
+        if (debug) System.out.println("CHANGING CONTEXT - END");
+        table.returnFromContext();
+
         if (ref.ref instanceof IdRef){
             String name = ((IdRef) ref.ref).id.spelling;
-            int level = table.getCurrentNode().getNodeLevel();
-            if (ref.id.declaration instanceof FieldDecl){
-                FieldDecl fieldDeclaration = (FieldDecl) ref.id.declaration;
-                if (table.getCurrentMethod() != null && table.getCurrentMethod().isStatic && !fieldDeclaration.isStatic){
-                    TypeError("Reference does not fit current static context", ref.posn);
+            if (table.getLevelDepth() == 0){
+                if (ref.id.declaration instanceof FieldDecl){
+                    FieldDecl fieldDecl = (FieldDecl) ref.id.declaration;
+                    if (table.findLevel1() instanceof MethodDecl &&
+                            ((MethodDecl) table.findLevel1()).isStatic && !fieldDecl.isStatic){
+                        TypeError("Reference does not conform to current static context", ref.posn);
+                    }
                 }
+            }
+        }
+
+        if (ref.ref.declaration instanceof MethodDecl){
+            TypeError("Function reference cannot appear within QRef", ref.posn);
+        }
+
+        TypeDenoter referenceType = (TypeDenoter) ref.ref.visit(this, null);
+        if (!(referenceType instanceof ClassType)){
+            if (referenceType.typeKind != TypeKind.ARRAY && ref.id.spelling.equals("length")){
+                TypeError("Function called no a non-object", ref.posn);
             }
         }
         return ref.id.visit(this, null);
@@ -741,24 +805,54 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitIdentifier(Identifier id, Object arg) {
-        id.declaration = table.findLocal(id.spelling);
-        if (id.declaration == null){
-            id.declaration = table.find(id.spelling);
-            if (id.declaration == null) {
-                TypeError(id.spelling + " has not been declared", id.posn);
-                System.exit(4);
-            }
+        if (table.getCurrentNode() != null && table.findNodeNoChange(id.spelling) != null &&
+                table.findNodeNoChange(id.spelling).getNodeLevel() < table.getCurrentNode().getNodeLevel() ||
+                (table.findClass(id.spelling) != null && table.findClass(id.spelling).equals(table.findClass(table.getCurrentClassName())))){
+            id.declaration = table.findNodeNoChange(id.spelling).getNodeDeclaration();
         }
+        else{
+            id.declaration = table.find(id.spelling);
+        }
+        //First case - you find a predefined class, you don't change to it by default.
+        //Switch context
+//        if (table.isPredefined(id.spelling) && table.getSavedContext() == null){
+//            if (debug) System.out.println("CHANGING CONTEXT - BEGIN");
+//            table.changeClassContext(id.spelling);
+//        }
+//        else if (!table.isPredefined(id.spelling) && table.getSavedContext() != null){
+//            if (debug) System.out.println("CHANGING CONTEXT - END");
+//            table.returnFromContext();
+//        }
+        //Second case - Predefined class isn't immediately found - test the current spelling for
+        // if it is in the predefined word bank. If it is, search all of the classes for their
+        // corresponding methods - if there's a match, you can hook into it and continue from there.
+        if (id.declaration == null){
+            if (table.isPredefined(id.spelling)) {
+                if (debug) System.out.println("CHANGING CONTEXT - BEGIN");
+                String classLocation = table.searchPredefined(id.spelling);
+                table.changeClassContext(table.findClassNode(classLocation));
+            }
+            else if (!table.isPredefined(id.spelling) && table.getSavedContext() != null){
+                if (debug) System.out.println("CHANGING CONTEXT - END");
+                table.returnFromContext();
+            }
+            id.declaration = table.find(id.spelling);
+        }
+        if (id.declaration == null){
+            TypeError("Declaration not found at depth " + table.getLevelDepth(), id.posn);
+            System.exit(4);
+        }
+
         String className = table.getCurrentClassName();
-        if (id.declaration instanceof FieldDecl && table.findMethodInClass(className, id.spelling)
-                == null){
+        if (id.declaration instanceof FieldDecl && table.findLevel1FromClass(id.spelling, className) == null){
             FieldDecl fieldDeclaration = (FieldDecl) id.declaration;
             if (fieldDeclaration.isPrivate){
-                TypeError("Private field accessed in illegal context", fieldDeclaration.posn);
+                TypeError("Private field accessed in illegal context", id.posn);
             }
         }
         return getType(id.declaration.type);
     }
+
 
     @Override
     public Object visitOperator(Operator op, Object arg) {

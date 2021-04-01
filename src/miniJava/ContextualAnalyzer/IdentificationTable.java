@@ -13,13 +13,23 @@ public class IdentificationTable {
     private HashMap<String, HashNode> allTables;
     private boolean staticContext = false;
     private HashNode currentNode;
+    public ArrayList<String> predefinedClasses = new ArrayList<>();
+    public HashNode savedContext;
 
+    public HashNode getSavedContext(){
+        return this.savedContext;
+    }
+    public HashMap<String, HashNode> getAllTables(){
+        return this.allTables;
+    }
+    public boolean isPredefined(String className){
+        if (predefinedClasses.contains(className)) {
+            return true;
+        }
+        return false;
+    }
     public HashNode getCurrentNode() {
         return currentNode;
-    }
-
-    public void setCurrentNode(HashNode currentNode) {
-        this.currentNode = currentNode;
     }
 
     private MemberDecl lastMethod;
@@ -27,69 +37,110 @@ public class IdentificationTable {
     public IdentificationTable(ErrorReporter reporter){
         this.reporter = reporter;
         this.allTables = new HashMap<String, HashNode>();
+        String[] predefined = {"System", "_PrintStream", "String", "out", "println"};
+        this.predefinedClasses.addAll(Arrays.asList(predefined));
     }
 
-    public void changeClassView(String className){
-        currentNode = allTables.get(className);
+    public String searchPredefined(String id){
+        for (String a : predefinedClasses){
+            if (allTables.get(a) != null){
+                if (findLevel1FromClass(id, a) != null){
+                   return a;
+                }
+            }
+        }
+        return null;
     }
 
     public void insertClass(String id, Declaration attribute){
         allTables.put(id, new HashNode(id, attribute, null, 0));
         currentNode = allTables.get(id);
     }
-
-    public boolean anyDuplicates(String id){
-        HashNode copiedNode = new HashNode(currentNode);
-        while (copiedNode != null && copiedNode.getNodeLevel() != 0){
-            if (copiedNode.getKey().equals(id)){
-                return true;
-            }
-            copiedNode = copiedNode.getPreviousNode();
-        }
-        if (copiedNode != null && copiedNode.getKey().equals(id)){
-            return true;
-        }
-        return false;
-    }
     public void insert(String id, Declaration attribute){
-
-        if (currentNode != null){
-            if (!anyDuplicates(id)) {
-                currentNode.getNextLevel().put(id, new HashNode(id, attribute, null,
-                        currentNode.getNodeLevel() + 1));
-                currentNode = currentNode.getNextLevel().get(id);
-            }
+        if (currentNode == null){
+            allTables.putIfAbsent(id, new HashNode(id, attribute, null, 0,
+                    false, false));
+            currentNode = allTables.get(id);
         }
         else{
-            insertClass(id, attribute);
+            if (aWiderScope(currentNode.getNodeDeclaration(), attribute) == 1){
+                    currentNode.getNextLevel().put(id, new HashNode(id, attribute,
+                    currentNode, currentNode.getNodeLevel() + 1, currentNode.isStatic(),
+                    currentNode.isPrivate()));
+                    currentNode = currentNode.getNextLevel().get(id);
+
+            }
+            else if (aWiderScope(currentNode.getNodeDeclaration(), attribute) == 0){
+                if (allTables.get(currentNode.getKey()) != null) {
+                    currentNode.getNextLevel().put(id, new HashNode(id, attribute, currentNode,
+                            currentNode.getNodeLevel() + 1, currentNode.isStatic(), currentNode.isPrivate()));
+                    currentNode = currentNode.getNextLevel().get(id);
+                }
+                else if (currentNode.getNodeLevel() >= 1){
+                    currentNode.getPreviousNode().getNextLevel().put(id, new HashNode(id, attribute, currentNode.getPreviousNode(),
+                            currentNode.getNodeLevel(), currentNode.isStatic(), currentNode.isPrivate()));
+                    currentNode = currentNode.getPreviousNode().getNextLevel().get(id);
+                }
+                else{
+                    allTables.put(id, new HashNode(id, attribute, null, 0, false, false));
+                }
+            }
+            else if (aWiderScope(currentNode.getNodeDeclaration(), attribute) == -1){
+                currentNode = currentNode.getPreviousNode();
+                insert(id, attribute);
+            }
         }
     }
-    public Declaration findLocal(String className){
-        HashNode copyNode = new HashNode(currentNode);
-        while (copyNode != null) {
-            if (copyNode.getKey().equals(className)) {
-                return copyNode.getNodeDeclaration();
+
+    public int aWiderScope(Declaration a, Declaration b){
+        int aResult = valueConversion(a);
+        int bResult = valueConversion(b);
+
+        if (aResult < bResult){
+            return 1;
+        }
+        else if (aResult == bResult){
+            return 0;
+        }
+        else{
+            return -1;
+        }
+    }
+
+    public int valueConversion(Declaration a){
+        if (a instanceof ClassDecl){
+            return 0;
+        } else if (a instanceof MemberDecl){
+            return 1;
+        } else if (a instanceof ParameterDecl){
+            return 2;
+        } else if (a instanceof LocalDecl){
+            return 3;
+        }
+        else{
+        return 4;
+        }
+    }
+
+    public void changeClassContext(HashNode className){
+        this.savedContext = this.currentNode;
+        this.currentNode = className;
+    }
+
+    public void returnFromContext(){
+        this.currentNode = this.savedContext;
+        this.savedContext = null;
+    }
+    public Declaration findLevel1(){
+        HashNode differentClass = findClassNode(currentNode);
+        if (differentClass != null){
+            HashNode differentMethod = differentClass.getNextLevel().get(currentNode);
+            if (differentMethod != null){
+                return differentMethod.getNodeDeclaration();
             }
-            copyNode = copyNode.getPreviousNode();
         }
         return null;
     }
-
-    public boolean isStaticContext(){
-        return currentNode.isStatic();
-    }
-
-    public MemberDecl getCurrentMethod(){
-        HashNode copiedNode = new HashNode(currentNode);
-        while (copiedNode != null && copiedNode.getNodeLevel() >= 1){
-            copiedNode = copiedNode.getPreviousNode();
-        }
-        if (copiedNode == null || copiedNode.getNodeLevel() != 1){
-            return null;
-        }
-        return (MemberDecl) copiedNode.getNodeDeclaration();
-    }
-
     public int getValue(Declaration c){
         if (c instanceof ClassDecl){
             return 0;
@@ -111,61 +162,131 @@ public class IdentificationTable {
         return null;
     }
 
-    public Declaration find(String id){
-        //First, check immediate descendents
-        if (currentNode.getNextLevel() != null && currentNode.getNextLevel().get(id) != null){
-            currentNode = currentNode.getNextLevel().get(id);
-            return currentNode.getNodeDeclaration();
+    public HashNode findClassNode(String id){
+        if (allTables.get(id) != null){
+            return allTables.get(id);
         }
-        //No luck? Start working through previous nodes
-        else{
-            while (currentNode.getPreviousNode() != null){
-               if (currentNode.getNextLevel().get(id) != null){
-                   currentNode = currentNode.getNextLevel().get(id);
-                   return currentNode.getNodeDeclaration();
-               }
-               currentNode = currentNode.getPreviousNode();
-            }
-            if (currentNode.getKey().equals(id))
-                return currentNode.getNodeDeclaration();
-        }
-        //Last shot is to search all the classes.
-        for (int i = 0; i < allTables.size(); i++){
-            HashNode node = allTables.get(allTables.keySet().toArray()[i]);
-            if (allTables.get(id) != null){
-                currentNode = findClassNode(node);
-                return allTables.get(id).getNodeDeclaration();
-            }
-            if (node.getNextLevel().get(id) != null){
-                currentNode = findClassNode(node);
-                if (currentNode.getNodeDeclaration() instanceof MemberDecl){
-                    lastMethod = (MethodDecl) currentNode.getNodeDeclaration();
-                }
-                return node.getNextLevel().get(id).getNodeDeclaration();
+        return null;
+    }
+
+    public HashNode findLevel1NodeFromClass(String method, String className){
+        HashNode differentClass = findClassNode(className);
+        if (differentClass != null){
+            HashNode differentMethod = differentClass.getNextLevel().get(method);
+            if (differentMethod != null){
+                return differentMethod;
             }
         }
         return null;
     }
 
-    public HashNode findClassNode(HashNode node){
-        while (node.getPreviousNode() != null){
-            node = node.getPreviousNode();
+    public Declaration findLevel1FromClass(String method, String className){
+        HashNode differentClass = findClassNode(className);
+        if (differentClass != null){
+            HashNode differentMethod = differentClass.getNextLevel().get(method);
+            if (differentMethod != null){
+                return differentMethod.getNodeDeclaration();
+            }
         }
-        return node;
+        return null;
     }
-    public Declaration findMethodInClass(String className, String method){
-        try {
-            return allTables.get(className).getNextLevel().get(method).getNodeDeclaration();
-        } catch (NullPointerException e){
-            return null;
+
+    public Declaration find(String id){
+        //I'm... not quite sure yet if I want this to adjust the position every time I find. TBD.
+        //Yes, adjusting the position seems to be the way to go
+
+        if (currentNode != null){
+            //If current node is empty, there's shouldn't be anything in the structure anyway
+            //So yes, we can just skip over it using the if statement
+
+            //First case - if the currentNode already has what we need
+            if (currentNode.getKey().equals(id)){
+                return currentNode.getNodeDeclaration();
+            }
+            //Second case - It doesn't have what we need, so we need to do the only thing
+            //we can do, which is to go bottom-up, searching on each tier until we find something,
+            //or until we reach the Class level and have to stop. At which point...
+            else{
+                HashNode copyNode = new HashNode(currentNode);
+                while (copyNode != null){
+                    if (copyNode.getNextLevel().get(id) != null){
+                        currentNode = copyNode.getNextLevel().get(id);
+                        return copyNode.getNextLevel().get(id).getNodeDeclaration();
+                    }
+                    copyNode = copyNode.getPreviousNode();
+                }
+                //Third case - We check allTables to see if we get any returns. If we do, we need to switch
+                //contexts, and we need to keep a fairly close track of it - that'll be handled on
+                //the TypeChecking side for now, may change as work continues.
+                if (allTables.get(id) != null) {
+                    return allTables.get(id).getNodeDeclaration();
+                }
+
+            }
         }
+        return null;
+    }
+
+    public HashNode findNodeNoChange(String id){
+        //I'm... not quite sure yet if I want this to adjust the position every time I find. TBD.
+        //Yes, adjusting the position seems to be the way to go
+
+        if (currentNode != null){
+            //If current node is empty, there's shouldn't be anything in the structure anyway
+            //So yes, we can just skip over it using the if statement
+
+            //First case - if the currentNode already has what we need
+            if (currentNode.getKey().equals(id)){
+                return currentNode;
+            }
+            //Second case - It doesn't have what we need, so we need to do the only thing
+            //we can do, which is to go bottom-up, searching on each tier until we find something,
+            //or until we reach the Class level and have to stop. At which point...
+            else{
+                HashNode copyNode = new HashNode(currentNode);
+                while (copyNode != null){
+                    if (copyNode.getNextLevel().get(id) != null){
+                        return copyNode.getNextLevel().get(id);
+                    }
+                    copyNode = copyNode.getPreviousNode();
+                }
+                //Third case - We check allTables to see if we get any returns. If we do, we need to switch
+                //contexts, and we need to keep a fairly close track of it - that'll be handled on
+                //the TypeChecking side for now, may change as work continues.
+                if (allTables.get(id) != null) {
+                    return allTables.get(id);
+                }
+
+            }
+        }
+        return null;
+    }
+
+    public void goToClass(){
+        while (currentNode.getPreviousNode() != null){
+            currentNode = currentNode.getPreviousNode();
+        }
+    }
+    public HashNode findClassNode(HashNode node){
+        if (node != null) {
+            while (node.getPreviousNode() != null) {
+                node = node.getPreviousNode();
+            }
+            return node;
+        }
+        return null;
     }
 
     public int getLevelDepth(){
+        if (currentNode != null)
         return currentNode.getNodeLevel();
+        return -1;
     }
 
     public String getCurrentClassName(){
+        if (currentNode == null){
+            return null;
+        }
         HashNode copiedNode = new HashNode(currentNode);
         while (copiedNode != null && copiedNode.getNodeLevel() != 0){
             copiedNode = copiedNode.getPreviousNode();

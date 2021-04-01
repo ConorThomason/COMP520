@@ -18,5 +18,8 @@ public class IdRef extends BaseRef {
 		return v.visitIdRef(this, o);
 	}
 
+	public String getName(){
+		return id.spelling;
+	}
 	public Identifier id;
 }

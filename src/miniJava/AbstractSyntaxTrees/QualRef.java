@@ -20,6 +20,10 @@ public class QualRef extends Reference {
 		return v.visitQRef(this, o);
 	}
 
+	public String getName(){
+		return id.spelling;
+	}
+
 	public Reference ref;
 	public Identifier id;
 }

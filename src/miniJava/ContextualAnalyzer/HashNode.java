@@ -39,9 +39,9 @@ public class HashNode {
         this.previousNode = previousNode;
         this.nodeLevel = currentLevel;
         try {
-            if (previousNode.isStatic)
+            if (previousNode != null && previousNode.isStatic)
                 this.isStatic = true;
-            if (previousNode.isPrivate)
+            if (previousNode != null && previousNode.isPrivate)
                 this.isPrivate = true;
         } catch (NullPointerException e){
             //nop
@@ -56,6 +56,14 @@ public class HashNode {
 
     public boolean isStatic(){
         return isStatic;
+    }
+
+    public void setIsStatic(boolean isStatic){
+        this.isStatic = true;
+    }
+
+    public void setIsPrivate(boolean isPrivate){
+        this.isPrivate = true;
     }
 
 
@@ -73,10 +81,10 @@ public class HashNode {
         this.key = node.key;
         this.nodeDeclaration = node.nodeDeclaration;
         this.previousNode = node.previousNode;
+        this.nextLevel = node.nextLevel;
         this.nodeLevel = node.nodeLevel;
         this.isStatic = node.isStatic;
         this.isPrivate = node.isPrivate;
-        this.nextLevel = new HashMap<String, HashNode>();
     }
 
     public HashNode getPreviousNode() {
