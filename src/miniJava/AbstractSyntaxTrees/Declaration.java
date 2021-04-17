@@ -14,7 +14,8 @@ public abstract class Declaration extends AST {
 		this.name = name;
 		this.type = type;
 	}
-	
+
+	public Identifier id;
 	public String name;
 	public TypeDenoter type;
 }

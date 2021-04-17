@@ -501,7 +501,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         if (debug) System.out.println("Attempting to visit " + stmt);
         TypeDenoter conditionType = (TypeDenoter) stmt.cond.visit(this, arg);
         if (errorUnsupportedCheck(conditionType)){
-            TypeError("IfStmt - Condition type not boolean", conditionType.posn);
+            TypeError("IfStmt - Condition type not boolean", stmt.posn);
             System.exit(4);
         }
         if (stmt.thenStmt instanceof VarDeclStmt){
