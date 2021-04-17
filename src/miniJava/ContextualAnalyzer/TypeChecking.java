@@ -6,8 +6,9 @@ import miniJava.ErrorReporter;
 import miniJava.SyntacticAnalyzer.SourcePosition;
 import miniJava.SyntacticAnalyzer.Token;
 import miniJava.SyntacticAnalyzer.TokenKind;
+import java.util.ArrayList;
 
-import java.lang.reflect.Member;
+import javax.lang.model.type.NullType;
 
 
 public class TypeChecking implements Visitor<Object, Object> {
@@ -41,9 +42,6 @@ public class TypeChecking implements Visitor<Object, Object> {
         return type;
     }
     private boolean typesEqual(TypeDenoter type1, TypeDenoter type2){
-        if (type1 == null || type2 == null){
-            return false;
-        }
         if (errorUnsupportedCheck(type1, type2)){
             return false;
         }
@@ -72,6 +70,9 @@ public class TypeChecking implements Visitor<Object, Object> {
                 }
             }
             return className1.spelling.equals(className2.spelling);
+        }
+        else if (type1 instanceof NullType || type2 instanceof NullType || type1 == null || type2 == null){
+            return true;
         }
         return type1.typeKind == type2.typeKind;
     }
@@ -149,7 +150,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         table.openScope();
         for (FieldDecl f : cd.fieldDeclList){
             if (debug) System.out.println("Attempting to visit " + f);
-            f.visit(this, arg);
+            Object result = f.visit(this, arg);
         }
         for (MethodDecl m: cd.methodDeclList){
             if (debug) System.out.println("Attempting to visit " + m);
@@ -270,9 +271,11 @@ public class TypeChecking implements Visitor<Object, Object> {
     }
 
     public boolean errorUnsupportedCheck(TypeDenoter given1, TypeDenoter given2){
-        if (!given1.equals(errorType) || !given1.equals(unsupportedType) && (!given2.equals(errorType) ||
-                !given2.equals(unsupportedType))){
-            return false;
+        if (given1 != null && given2 != null) {
+            if (!given1.equals(errorType) || !given1.equals(unsupportedType) && (!given2.equals(errorType) ||
+                    !given2.equals(unsupportedType))) {
+                return false;
+            }
         }
         return true;
     }
@@ -286,7 +289,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         if (stmt.initExp instanceof RefExpr){
             RefExpr referenceExpression = (RefExpr) stmt.initExp;
             if (referenceExpression.ref.declaration instanceof ClassDecl){
-                TypeError("Variable declaration attempts assignment of class", stmt.posn);
+                TypeError("Variable declaration attempts assignment of class at Depth: " + table.getLevelDepth(), stmt.posn);
             }
             if (referenceExpression.ref.declaration instanceof MethodDecl){
                 TypeError("Variable declaration attempts assignment of method", stmt.posn);
@@ -297,24 +300,35 @@ public class TypeChecking implements Visitor<Object, Object> {
                 }
             }
         }
-        if (!typesEqual(referenceType, expressionType) || !referenceType.equals(expressionType)){
+        if (!typesEqual(referenceType, expressionType)){
             if (referenceType instanceof ClassType && expressionType instanceof ClassType ){
-                Identifier i1 = ((ClassType) referenceType).className;
-                Identifier i2 = ((ClassType) expressionType).className;
-                System.out.println(i1.declaration.type);
-                if (i1.declaration == null || i2.declaration == null){
+                Identifier class1 = ((ClassType) referenceType).className;
+                Identifier class2 = ((ClassType) expressionType).className;
+                if (debug) System.out.println(class1.declaration.type);
+                if (class1.declaration == null || class2.declaration == null){
                     TypeError("Variable declaration attempts assignment of class type", stmt.posn);
                 }
                 else{
-                    TypeError("Variable declaration attempts to assign incompatible expression to reference",
+                    TypeError("Variable declaration attempts to assign incompatible expression to reference at Depth: " + table.getLevelDepth(),
                             stmt.posn);
                 }
             }
             else{
-                TypeError("Variable declaration attempts to assign incompatible expression to reference",
+                TypeError("Variable declaration attempts to assign incompatible expression: " + expressionType + " to reference at Depth: " + table.getLevelDepth(),
                         stmt.posn);
             }
             return new BaseType(TypeKind.ERROR, stmt.posn);
+        }
+        else if (referenceType instanceof ClassType && expressionType instanceof ClassType){
+            String class1 = ((ClassType) referenceType).className.spelling;
+            String class2= ((ClassType) expressionType).className.spelling;
+            if (!class1.equals(class2)){
+                TypeError("Variable declaration attempts to " +
+                        "assign incompatible class expression to reference at Depth: " + table.getLevelDepth(), stmt.posn);
+            }
+        }
+        if (expressionType.typeKind == TypeKind.NULL){
+            return new BaseType(TypeKind.NULL, expressionType.posn);
         }
         return referenceType;
     }
@@ -378,8 +392,36 @@ public class TypeChecking implements Visitor<Object, Object> {
     public Object visitCallStmt(CallStmt stmt, Object arg) {
         //Identification
         stmt.methodRef.visit(this, null);
+        ArrayList<Object> expressions = new ArrayList<>();
         for (Expression e : stmt.argList){
-            e.visit(this, null);
+            expressions.add(e.visit(this, null));
+        }
+        if (stmt.methodRef.declaration instanceof MethodDecl) {
+            ParameterDeclList parameters = ((MethodDecl) stmt.methodRef.declaration).parameterDeclList;
+            for (int i = 0; i < expressions.size(); i++) {
+                Object currentExpression = expressions.get(i);
+                ParameterDecl parameter = parameters.get(i);
+
+                String comparisonString = null;
+                String parameterString = null;
+                if (currentExpression instanceof ClassType){
+                    comparisonString = ((ClassType) currentExpression).className.spelling;
+                }
+                else if (currentExpression instanceof BaseType){
+                    comparisonString = ((BaseType) currentExpression).typeKind.name();
+                }
+                if (parameter.type instanceof ClassType) {
+                    parameterString = ((ClassType) parameter.type).className.spelling;
+                }
+                else if (parameter.type instanceof BaseType){
+                    parameterString = ((BaseType) parameter.type).typeKind.name();
+                }
+
+                if (parameterString != null && !parameterString.equals(comparisonString)){
+                    TypeError("Unsupported type for expression", stmt.posn);
+                }
+
+            }
         }
         MethodDecl calledMethod = null;
         if (stmt.methodRef.declaration instanceof MethodDecl) {
@@ -574,8 +616,13 @@ public class TypeChecking implements Visitor<Object, Object> {
             case EQUIVALENT:
             case NEQUAL:
                 if (!left.equals(right)){
-                    TypeError("Type mismatch, EQ Binary Expression error", expr.posn);
-                    returnedType = unsupportedType;
+                    if (left.typeKind != TypeKind.NULL && right.typeKind != TypeKind.NULL) {
+                        TypeError("Type mismatch, EQ Binary Expression error", expr.posn);
+                        returnedType = unsupportedType;
+                    }
+                    else{
+                        returnedType = new BaseType(TypeKind.NULL, null);
+                    }
                 }
                 break;
             case GTHAN:
@@ -646,19 +693,24 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitIxExpr(IxExpr expr, Object arg) {
-        expr.ref.visit(this, arg);
+        Object result = expr.ref.visit(this, arg);
         expr.ixExpr.visit(this, arg);
-        return new BaseType(TypeKind.ARRAY, expr.posn);
+        if (result instanceof ArrayType){
+            return ((ArrayType)result).eltType;
+        } else{
+            return result;
+        }
     }
 
     @Override
     public Object visitCallExpr(CallExpr expr, Object arg) {
-        expr.functionRef.visit(this, table);
+        Object result1 = expr.functionRef.visit(this, table); //for debugging only
         for (Expression e : expr.argList){
             e.visit(this, table);
         }
 
         if (!(expr.functionRef.declaration instanceof MethodDecl)) {
+            Object result = expr.functionRef.visit(this, table);
             TypeError("Function call references a function that doesn't exist within scope", expr.posn);
             return new BaseType(TypeKind.ERROR, expr.posn);
         }
@@ -761,21 +813,35 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitQRef(QualRef ref, Object arg) {
-        ref.ref.visit(this, table);
+        TypeDenoter referenceType = (TypeDenoter) ref.ref.visit(this, table);
 
         if (ref.ref.declaration != null && ref.ref.declaration.type instanceof ClassType){
             String className = ((ClassType) ref.ref.declaration.type).className.spelling;
             if (debug) System.out.println("CHANGING CONTEXT - BEGIN");
             table.changeClassContext(table.findClassNode(className));
+        } else if (ref.ref.declaration != null && ref.ref.declaration instanceof ClassDecl){
+            String className = ((ClassDecl) ref.ref.declaration).name;
+            if (debug) System.out.println("CHANGING CONTEXT - BEGIN");
+            table.changeClassContext(table.findClassNode(className));
+        } else if (table.getSavedContext() != null){
+            if (debug) System.out.println("CHANGING CONTEXT - END");
+            table.returnFromContext();
         }
-        if (ref.ref.declaration != null && ref.ref.declaration.type != null && !(ref.ref.declaration.type.typeKind == TypeKind.ARRAY && ref.id.spelling.equals("length"))){
+        if (ref.ref.declaration != null && ref.ref.declaration.type != null &&
+                !(ref.ref.declaration.type.typeKind == TypeKind.ARRAY && ref.id.spelling.equals("length"))){
             ref.id.visit(this, table);
         } else{
-            ref.id.declaration = new FieldDecl(false, false, new BaseType(TypeKind.INT, ref.ref.posn), "length", ref.ref.posn);
+//            ref.id.declaration = new FieldDecl(false, false, new BaseType(TypeKind.INT, ref.ref.posn), "length", ref.ref.posn);
         }
+        ref.id.visit(this, table);
         ref.declaration = ref.id.declaration;
-        if (debug) System.out.println("CHANGING CONTEXT - END");
-        table.returnFromContext();
+//        if (debug) System.out.println("CHANGING CONTEXT - END");
+//        table.returnFromContext();
+        if (ref.declaration instanceof MethodDecl){
+            if (debug) System.out.println("CHANGING CONTEXT - END");
+            table.returnFromContext();
+            return ref.declaration.type;
+        }
 
         if (ref.ref instanceof IdRef){
             String name = ((IdRef) ref.ref).id.spelling;
@@ -790,21 +856,23 @@ public class TypeChecking implements Visitor<Object, Object> {
             }
         }
 
+
         if (ref.ref.declaration instanceof MethodDecl){
             TypeError("Function reference cannot appear within QRef", ref.posn);
         }
 
-        TypeDenoter referenceType = (TypeDenoter) ref.ref.visit(this, null);
         if (!(referenceType instanceof ClassType)){
             if (referenceType.typeKind != TypeKind.ARRAY && ref.id.spelling.equals("length")){
-                TypeError("Function called no a non-object", ref.posn);
+                TypeError("Function called on a non-object", ref.posn);
             }
         }
         return ref.id.visit(this, null);
+//        return null;
     }
 
     @Override
     public Object visitIdentifier(Identifier id, Object arg) {
+        String classLocation;
         if (table.getCurrentNode() != null && table.findNodeNoChange(id.spelling) != null &&
                 table.findNodeNoChange(id.spelling).getNodeLevel() < table.getCurrentNode().getNodeLevel() ||
                 (table.findClass(id.spelling) != null && table.findClass(id.spelling).equals(table.findClass(table.getCurrentClassName())))){
@@ -829,7 +897,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         if (id.declaration == null){
             if (table.isPredefined(id.spelling)) {
                 if (debug) System.out.println("CHANGING CONTEXT - BEGIN");
-                String classLocation = table.searchPredefined(id.spelling);
+                classLocation = table.searchPredefined(id.spelling);
                 table.changeClassContext(table.findClassNode(classLocation));
             }
             else if (!table.isPredefined(id.spelling) && table.getSavedContext() != null){
@@ -841,6 +909,9 @@ public class TypeChecking implements Visitor<Object, Object> {
         if (id.declaration == null){
             TypeError("Declaration not found at depth " + table.getLevelDepth(), id.posn);
             System.exit(4);
+        }
+        else if (table.downSearchNoMove(id.spelling) != null && table.downSearchNoMove(id.spelling).getKey().equals(table.getCurrentNode().getKey())){
+            table.returnFromContext();
         }
 
         String className = table.getCurrentClassName();

@@ -3,7 +3,7 @@
  * Identification
  */
 class fail307 { 	
-    // public static void main(String[] args) {}
+
 
     public void weird() { }
 

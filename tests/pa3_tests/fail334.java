@@ -1,4 +1,4 @@
-/*** line 7: identifier "out" is not a member of class "System"
+/*** line 11: class "System" has already been declared
  * COMP 520
  * Identification
  */

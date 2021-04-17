@@ -3,7 +3,6 @@
  * Identification
  */
 class Fail327 {
-    // public static void main(String[] args) {}
 
     public int [] a;
 

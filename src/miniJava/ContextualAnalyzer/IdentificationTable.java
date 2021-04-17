@@ -14,10 +14,14 @@ public class IdentificationTable {
     private boolean staticContext = false;
     private HashNode currentNode;
     public ArrayList<String> predefinedClasses = new ArrayList<>();
-    public HashNode savedContext;
+    public Stack<HashNode> savedContext = new Stack<>();
 
     public HashNode getSavedContext(){
-        return this.savedContext;
+        try {
+            return this.savedContext.peek();
+        } catch (EmptyStackException e){
+            return null;
+        }
     }
     public HashMap<String, HashNode> getAllTables(){
         return this.allTables;
@@ -92,21 +96,25 @@ public class IdentificationTable {
         }
     }
 
-    public int aWiderScope(Declaration a, Declaration b){
+    public int aWiderScope(Declaration a, Declaration b) {
         int aResult = valueConversion(a);
         int bResult = valueConversion(b);
 
-        if (aResult < bResult){
+        if (aResult < bResult) {
             return 1;
-        }
-        else if (aResult == bResult){
+        } else if (aResult == bResult) {
             return 0;
-        }
-        else{
+        } else {
             return -1;
         }
     }
 
+    public HashNode downSearchNoMove(String search){
+        if (currentNode.getNextLevel().get(search) != null){
+            return currentNode.getNextLevel().get(search);
+        }
+        return null;
+    }
     public int valueConversion(Declaration a){
         if (a instanceof ClassDecl){
             return 0;
@@ -123,13 +131,16 @@ public class IdentificationTable {
     }
 
     public void changeClassContext(HashNode className){
-        this.savedContext = this.currentNode;
+        this.savedContext.push(this.currentNode);
         this.currentNode = className;
     }
 
     public void returnFromContext(){
-        this.currentNode = this.savedContext;
-        this.savedContext = null;
+        try {
+            this.currentNode = this.savedContext.pop();
+        } catch (EmptyStackException e){
+            //nop
+        }
     }
     public Declaration findLevel1(){
         HashNode differentClass = findClassNode(currentNode);

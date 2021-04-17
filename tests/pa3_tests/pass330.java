@@ -1,11 +1,11 @@
 /**
  * COMP 520
- * Array indexing
+ * Array and reference indexing
  */
 class Pass330 {         
 
     public static void main(String[] args) {
-	D [] da = null;
+	D [] da = new D[6];
 	D d = da[3];
 	int y = d.x;
     }

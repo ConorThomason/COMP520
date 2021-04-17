@@ -4,8 +4,6 @@
  */
 class Pass303 {
 
-    // public static void main(String[] args) {}
-
     public void f() {
         C = 5;
     }

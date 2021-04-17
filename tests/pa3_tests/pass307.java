@@ -3,7 +3,7 @@
  * Identification
  */
 class Pass307 {
-    // public static void main(String[] args) {}
+
 }
 
 class A { 	
