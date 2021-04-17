@@ -1,6 +1,8 @@
 package miniJava;
 
+import mJAM.ObjectFile;
 import miniJava.AbstractSyntaxTrees.Package;
+import miniJava.CodeGenerator.Encoder;
 import miniJava.ContextualAnalyzer.Identification;
 import miniJava.ContextualAnalyzer.TypeChecking;
 import miniJava.SyntacticAnalyzer.Parser;
@@ -34,6 +36,10 @@ public class Compiler {
         System.out.println("\nContextual Analysis ...");
         TypeChecking typeChecker = new TypeChecking(ast, errorReporter);
         System.out.println("Contextual analysis complete: ");
+        Encoder encoder = new Encoder(errorReporter);
+        System.out.println("Code generation...");
+        encoder.beginEncode(ast);
+
         if (errorReporter.hasErrors()){
             System.out.println("Invalid miniJava program");
             System.out.println(errorReporter.getErrors());
@@ -41,7 +47,18 @@ public class Compiler {
         }
         else{
             System.out.println("Valid miniJava program");
-//            display.showTree(ast);
+//            String objFileName = args[0].substring(0, args[0].lastIndexOf("."));
+//            ObjectFile objF = new ObjectFile(objFileName + ".mJAM");
+//            System.out.println("Writing object code file" + objFileName);
+//            if (objF.write()){
+//                System.out.println("Failed to write");
+//                System.exit(4);
+//            }
+//            else{
+//                System.out.println("Successfully written");
+//            }
+////            display.showTree(ast);
+//            System.exit(0);
             System.exit(0);
         }
     }
