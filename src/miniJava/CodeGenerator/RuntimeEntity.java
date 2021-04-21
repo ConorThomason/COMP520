@@ -16,16 +16,13 @@ package miniJava.CodeGenerator;
 
 // Run-time object
 
-public abstract class RuntimeEntity {
+public class RuntimeEntity {
 
     public final static int maxRoutineLevel = 7;
+    public int memoryOffset;
 
-    public RuntimeEntity () {
-        size = 0;
-    }
-
-    public RuntimeEntity (int size) {
-        this.size = size;
+    public RuntimeEntity (int offset) {
+        this.memoryOffset = offset;
     }
 
     public int size;

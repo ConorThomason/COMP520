@@ -2,7 +2,6 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/PA1.iml" filepath="$PROJECT_DIR$/PA1.iml" />
       <module fileurl="file://$PROJECT_DIR$/miniJava.iml" filepath="$PROJECT_DIR$/miniJava.iml" />
     </modules>
   </component>

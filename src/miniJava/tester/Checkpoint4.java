@@ -125,7 +125,7 @@ public class Checkpoint4 {
     private static int executeTest(File x) throws IOException, InterruptedException {
 
     	String testPath = x.getPath().replace(".java", ".mJAM");
-    	ProcessBuilder pb = new ProcessBuilder("java", "miniJava.mJAM.Interpreter", testPath);
+    	ProcessBuilder pb = new ProcessBuilder("java", "mJAM.Interpreter", testPath);
     	pb.directory(classPath);
     	Process process = pb.start();
 

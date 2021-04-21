@@ -12,7 +12,7 @@ import javax.lang.model.type.NullType;
 
 
 public class TypeChecking implements Visitor<Object, Object> {
-   final static boolean debug = true;
+    final static boolean debug = true;
 
     public IdentificationTable table;
     private ErrorReporter reporter;
@@ -65,7 +65,7 @@ public class TypeChecking implements Visitor<Object, Object> {
             Identifier className2 = ((ClassType) type2).className;
             if (className1.declaration != null && className2.declaration != null){
                 if (className1.declaration.type.typeKind == TypeKind.UNSUPPORTED || className2.declaration.type
-                .typeKind == TypeKind.UNSUPPORTED){
+                        .typeKind == TypeKind.UNSUPPORTED){
                     return false;
                 }
             }
@@ -74,7 +74,9 @@ public class TypeChecking implements Visitor<Object, Object> {
         else if (type1 instanceof NullType || type2 instanceof NullType || type1 == null || type2 == null){
             return true;
         }
-        return type1.typeKind == type2.typeKind;
+        else{
+            return type1.typeKind.name().equals(type2.typeKind.name());
+        }
     }
     public void insertPredefined(){
         ClassDecl StringDecl = new ClassDecl("String", new FieldDeclList(), new MethodDeclList(), null);
@@ -133,18 +135,19 @@ public class TypeChecking implements Visitor<Object, Object> {
             //Then visit
         }
 
-            for (ClassDecl cd : prog.classDeclList) {
-                if (debug) System.out.println("Attempting to visit " + cd);
-                cd.visit(this, arg);
-            }
+        for (ClassDecl cd : prog.classDeclList) {
+            if (debug) System.out.println("Attempting to visit " + cd);
+            cd.visit(this, arg);
+        }
 
-            table.closeScope();
-            return new BaseType(TypeKind.UNSUPPORTED, prog.posn);
+        table.closeScope();
+        return new BaseType(TypeKind.UNSUPPORTED, prog.posn);
     }
 
     @Override
     public Object visitClassDecl(ClassDecl cd, Object arg) {
         //Probably not needed anymore since implementation continuity, but removing it seems like a needless risk?
+        table.changeClassContext(table.findClassNode(cd.name));
         workingClass = new ClassType(new Identifier(new Token(TokenKind.ID, cd.name, null)), null);
         table.openScope();
         table.openScope();
@@ -173,7 +176,6 @@ public class TypeChecking implements Visitor<Object, Object> {
     public Object visitMethodDecl(MethodDecl md, Object arg) {
 
         TypeDenoter toReturn = getType(md.type);
-
         if (md.type instanceof ClassType){
             if(table.findClass(((ClassType)md.type).className.spelling) == null){
                 TypeError("Method declaration returns DNE", md.posn);
@@ -194,6 +196,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         for (ParameterDecl pd: md.parameterDeclList){
             pd.visit(this, arg);
         }
+        table.find(md.name);
         table.openScope();
         for (Statement s: md.statementList){
             TypeDenoter typeDenoter = (TypeDenoter) s.visit(this, arg);
@@ -203,7 +206,7 @@ public class TypeChecking implements Visitor<Object, Object> {
             if (s instanceof ReturnStmt && !typesEqual(typeDenoter, toReturn)){
                 ReturnStmt returnExpr = ((ReturnStmt) s);
                 if (returnExpr.returnExpr.getClass().equals("BinaryExpr"))
-                TypeError("Return statement has type that doesn't match function return type", s.posn);
+                    TypeError("Return statement has type that doesn't match function return type", s.posn);
             }
         }
 
@@ -214,7 +217,6 @@ public class TypeChecking implements Visitor<Object, Object> {
 
     @Override
     public Object visitParameterDecl(ParameterDecl pd, Object arg) {
-        table.insert(pd.name, pd);
         pd.type.visit(this, arg);
         if (pd.type instanceof ClassType){
             HashNode previousNode = table.getCurrentNode();
@@ -264,10 +266,10 @@ public class TypeChecking implements Visitor<Object, Object> {
         if (given == null){
             return true;
         }
-       if (!given.equals(errorType) || !given.equals(unsupportedType)){
-           return false;
-       }
-       return true;
+        if (!given.equals(errorType) || !given.equals(unsupportedType)){
+            return false;
+        }
+        return true;
     }
 
     public boolean errorUnsupportedCheck(TypeDenoter given1, TypeDenoter given2){
@@ -288,6 +290,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         TypeDenoter referenceType = (TypeDenoter) stmt.varDecl.visit(this, null);
         if (stmt.initExp instanceof RefExpr){
             RefExpr referenceExpression = (RefExpr) stmt.initExp;
+            referenceExpression.ref.visit(this, null);
             if (referenceExpression.ref.declaration instanceof ClassDecl){
                 TypeError("Variable declaration attempts assignment of class at Depth: " + table.getLevelDepth(), stmt.posn);
             }
@@ -371,14 +374,26 @@ public class TypeChecking implements Visitor<Object, Object> {
     }
 
     @Override
+    public Object visitIxExpr(IxExpr expr, Object arg) {
+        Object result = expr.ref.visit(this, arg);
+        expr.ixExpr.visit(this, arg);
+        if (result instanceof ArrayType) {
+            return ((ArrayType) result).eltType;
+        } else {
+            return result;
+        }
+    }
+
+        @Override
     public Object visitIxAssignStmt(IxAssignStmt stmt, Object arg) {
         TypeDenoter returnedType = null;
-        TypeDenoter expressionType = (TypeDenoter) stmt.ix.visit(this, arg);
+        TypeDenoter expressionType = (TypeDenoter) stmt.exp.visit(this, arg);
+        TypeDenoter indexType = (TypeDenoter) stmt.ix.visit(this, arg);
         TypeDenoter referenceType = (TypeDenoter) stmt.ref.visit(this, arg);
         if (errorUnsupportedCheck(expressionType, referenceType)){
             returnedType = errorType;
         }
-        else if (!expressionType.equals(new BaseType(TypeKind.INT, null))){
+        else if (!indexType.equals(new BaseType(TypeKind.INT, null))){
             returnedType = errorType;
             TypeError("Index cannot be derived as an integer", expressionType.posn);
         }
@@ -501,7 +516,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         if (debug) System.out.println("Attempting to visit " + stmt);
         TypeDenoter conditionType = (TypeDenoter) stmt.cond.visit(this, arg);
         if (errorUnsupportedCheck(conditionType)){
-            TypeError("IfStmt - Condition type not boolean", stmt.posn);
+            TypeError("IfStmt - Condition type not boolean", conditionType.posn);
             System.exit(4);
         }
         if (stmt.thenStmt instanceof VarDeclStmt){
@@ -546,7 +561,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         expr.operator.visit(this, arg);
         TypeDenoter internalType = (TypeDenoter) expr.expr.visit(this, arg);
         if (errorUnsupportedCheck(internalType)){
-           returnedType = new BaseType(TypeKind.ERROR, null);
+            returnedType = new BaseType(TypeKind.ERROR, null);
         }
         else{
             switch (expr.operator.kind){
@@ -615,7 +630,7 @@ public class TypeChecking implements Visitor<Object, Object> {
                 break;
             case EQUIVALENT:
             case NEQUAL:
-                if (!left.equals(right)){
+                if (!typesEqual(left, right)){
                     if (left.typeKind != TypeKind.NULL && right.typeKind != TypeKind.NULL) {
                         TypeError("Type mismatch, EQ Binary Expression error", expr.posn);
                         returnedType = unsupportedType;
@@ -623,6 +638,8 @@ public class TypeChecking implements Visitor<Object, Object> {
                     else{
                         returnedType = new BaseType(TypeKind.NULL, null);
                     }
+                } else{
+                    returnedType = left;
                 }
                 break;
             case GTHAN:
@@ -692,17 +709,6 @@ public class TypeChecking implements Visitor<Object, Object> {
     }
 
     @Override
-    public Object visitIxExpr(IxExpr expr, Object arg) {
-        Object result = expr.ref.visit(this, arg);
-        expr.ixExpr.visit(this, arg);
-        if (result instanceof ArrayType){
-            return ((ArrayType)result).eltType;
-        } else{
-            return result;
-        }
-    }
-
-    @Override
     public Object visitCallExpr(CallExpr expr, Object arg) {
         Object result1 = expr.functionRef.visit(this, table); //for debugging only
         for (Expression e : expr.argList){
@@ -711,8 +717,12 @@ public class TypeChecking implements Visitor<Object, Object> {
 
         if (!(expr.functionRef.declaration instanceof MethodDecl)) {
             Object result = expr.functionRef.visit(this, table);
-            TypeError("Function call references a function that doesn't exist within scope", expr.posn);
-            return new BaseType(TypeKind.ERROR, expr.posn);
+            if (!(expr.functionRef instanceof QualRef && ((QualRef)expr.functionRef).ref instanceof ThisRef)) {
+                TypeError("Function call references a function that doesn't exist within scope", expr.posn);
+                return new BaseType(TypeKind.ERROR, expr.posn);
+            } else{
+                return result;
+            }
         }
         MethodDecl methodDeclaration = (MethodDecl) expr.functionRef.declaration;
         ParameterDeclList parameterList = methodDeclaration.parameterDeclList;
@@ -829,15 +839,24 @@ public class TypeChecking implements Visitor<Object, Object> {
         }
         if (ref.ref.declaration != null && ref.ref.declaration.type != null &&
                 !(ref.ref.declaration.type.typeKind == TypeKind.ARRAY && ref.id.spelling.equals("length"))){
-            ref.id.visit(this, table);
-        } else{
-//            ref.id.declaration = new FieldDecl(false, false, new BaseType(TypeKind.INT, ref.ref.posn), "length", ref.ref.posn);
+            Object result = ref.id.visit(this, table);
+            if (result instanceof MethodDecl){
+                return ((MethodDecl) result).type;
+            }
+        } else if (ref.ref.declaration != null && ref.ref.declaration.type != null && ref.ref.declaration.type.typeKind == TypeKind.ARRAY && ref.id != null &&  ref.id.spelling.equals("length")){
+            return new BaseType(TypeKind.INT, ref.id.posn);
+        }
+        else{
+            if (ref.ref.declaration != null && !(ref.ref.declaration instanceof ClassDecl)) {
+                return ref.ref.declaration.type;
+            } else{
+            }
         }
         ref.id.visit(this, table);
         ref.declaration = ref.id.declaration;
 //        if (debug) System.out.println("CHANGING CONTEXT - END");
 //        table.returnFromContext();
-        if (ref.declaration instanceof MethodDecl){
+        if (ref.declaration instanceof MemberDecl){
             if (debug) System.out.println("CHANGING CONTEXT - END");
             table.returnFromContext();
             return ref.declaration.type;
@@ -907,8 +926,15 @@ public class TypeChecking implements Visitor<Object, Object> {
             id.declaration = table.find(id.spelling);
         }
         if (id.declaration == null){
-            TypeError("Declaration not found at depth " + table.getLevelDepth(), id.posn);
-            System.exit(4);
+            while (id.declaration == null && !table.savedContextIsEmpty()){
+                if (debug) System.out.println("CHANGING CONTEXT - END");
+                table.returnFromContext();
+                id.declaration = table.find(id.spelling);
+            }
+            if (id.declaration == null) {
+                TypeError("Declaration: " + id.spelling + " not found at depth " + table.getLevelDepth(), id.posn);
+                System.exit(4);
+            }
         }
         else if (table.downSearchNoMove(id.spelling) != null && table.downSearchNoMove(id.spelling).getKey().equals(table.getCurrentNode().getKey())){
             table.returnFromContext();

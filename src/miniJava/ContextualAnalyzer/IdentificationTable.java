@@ -15,7 +15,6 @@ public class IdentificationTable {
     private HashNode currentNode;
     public ArrayList<String> predefinedClasses = new ArrayList<>();
     public Stack<HashNode> savedContext = new Stack<>();
-
     public HashNode getSavedContext(){
         try {
             return this.savedContext.peek();
@@ -26,6 +25,11 @@ public class IdentificationTable {
     public HashMap<String, HashNode> getAllTables(){
         return this.allTables;
     }
+
+    public boolean savedContextIsEmpty(){
+        return (savedContext.size() == 0);
+    }
+
     public boolean isPredefined(String className){
         if (predefinedClasses.contains(className)) {
             return true;
