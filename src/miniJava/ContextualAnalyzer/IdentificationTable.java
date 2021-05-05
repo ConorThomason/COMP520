@@ -282,6 +282,15 @@ public class IdentificationTable {
             currentNode = currentNode.getPreviousNode();
         }
     }
+
+    public void goToMethod(){
+        HashNode previousNode = currentNode;
+        while (currentNode.getPreviousNode() != null){
+            currentNode = currentNode.getPreviousNode();
+            previousNode =  currentNode;
+        }
+        currentNode = previousNode;
+    }
     public HashNode findClassNode(HashNode node){
         if (node != null) {
             while (node.getPreviousNode() != null) {

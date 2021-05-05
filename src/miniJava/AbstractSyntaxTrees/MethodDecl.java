@@ -18,7 +18,11 @@ public class MethodDecl extends MemberDecl {
 	public <A, R> R visit(Visitor<A, R> v, A o) {
         return v.visitMethodDecl(this, o);
     }
-	
+
+    public void setPredefined(boolean value){
+	    this.isPredefined = value;
+    }
+    public boolean isPredefined = false;
 	public ParameterDeclList parameterDeclList;
 	public StatementList statementList;
 }

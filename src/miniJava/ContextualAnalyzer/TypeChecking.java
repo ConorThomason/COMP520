@@ -90,6 +90,7 @@ public class TypeChecking implements Visitor<Object, Object> {
         ParameterDecl printlnNParameter = new ParameterDecl(new BaseType(TypeKind.INT, null), "n", null);
         printlnParameters.add(printlnNParameter);
         MethodDecl printlnMethod = new MethodDecl(println, printlnParameters, new StatementList(), null);
+        printlnMethod.setPredefined(true);
         printMethods.add(printlnMethod);
         ClassDecl printStreamDecl = new ClassDecl("_PrintStream", new FieldDeclList(), printMethods, null);
         Identifier printStreamID = new Identifier(new Token
@@ -154,10 +155,12 @@ public class TypeChecking implements Visitor<Object, Object> {
         for (FieldDecl f : cd.fieldDeclList){
             if (debug) System.out.println("Attempting to visit " + f);
             Object result = f.visit(this, arg);
+            table.goToClass();
         }
         for (MethodDecl m: cd.methodDeclList){
             if (debug) System.out.println("Attempting to visit " + m);
             m.visit(this, arg);
+            table.goToClass();
         }
 
         table.closeScope();
@@ -181,7 +184,7 @@ public class TypeChecking implements Visitor<Object, Object> {
                 TypeError("Method declaration returns DNE", md.posn);
             }
         }
-        table.insert(md.name, md);
+        if (table.findNodeNoChange(md.name) == null) table.insert(md.name, md);
         if (md.isStatic){
             table.getCurrentNode().setIsStatic(true);
         }
@@ -209,7 +212,6 @@ public class TypeChecking implements Visitor<Object, Object> {
                     TypeError("Return statement has type that doesn't match function return type", s.posn);
             }
         }
-
         table.closeScope();
         table.closeScope();
         return toReturn;
@@ -285,6 +287,7 @@ public class TypeChecking implements Visitor<Object, Object> {
     public Object visitVardeclStmt(VarDeclStmt stmt, Object arg) {
         if (debug) System.out.println("Attempting to visit " + stmt);
         this.forbiddenVariable = stmt.varDecl.name;
+        HashNode currentNode = table.getCurrentNode();
         TypeDenoter expressionType = (TypeDenoter) stmt.initExp.visit(this, null);
         this.forbiddenVariable = null;
         TypeDenoter referenceType = (TypeDenoter) stmt.varDecl.visit(this, null);
@@ -835,7 +838,7 @@ public class TypeChecking implements Visitor<Object, Object> {
             table.changeClassContext(table.findClassNode(className));
         } else if (table.getSavedContext() != null){
             if (debug) System.out.println("CHANGING CONTEXT - END");
-            table.returnFromContext();
+//            table.returnFromContext();
         }
         if (ref.ref.declaration != null && ref.ref.declaration.type != null &&
                 !(ref.ref.declaration.type.typeKind == TypeKind.ARRAY && ref.id.spelling.equals("length"))){

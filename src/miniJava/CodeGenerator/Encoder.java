@@ -269,7 +269,7 @@ public class Encoder implements Visitor<Integer, Object>{
             e.visit(this, Integer.MIN_VALUE);
         }
 
-        if (((MethodDecl)stmt.methodRef.declaration).name.equals("println")){
+        if (((MethodDecl)stmt.methodRef.declaration).name.equals("println") && ((MethodDecl)stmt.methodRef.declaration).isPredefined){
             if (stmt.argList.size() == 1){
                 Machine.emit(Prim.putintnl);
             } else{
@@ -482,7 +482,7 @@ public class Encoder implements Visitor<Integer, Object>{
     }
 
     public void idRefShortcut(IdRef ref){
-        if (ref.declaration instanceof MemberDecl && ref.id.declaration.runtimeEntity == null){
+        if (ref.declaration instanceof FieldDecl && ref.id.declaration.runtimeEntity != null){
             FieldDecl declaration = (FieldDecl) ref.declaration;
             if (declaration.isStatic){
                 Machine.emit(Op.LOAD, Reg.SB, ref.id.declaration.runtimeEntity.memoryOffset);
@@ -526,7 +526,7 @@ public class Encoder implements Visitor<Integer, Object>{
 
     @Override
     public Object visitQRef(QualRef ref, Integer arg) {
-        if (ref.id.declaration != null && ref.id.declaration.name.equals("length")){
+        if ((ref.id.declaration != null && ref.id.declaration.name.equals("length")) || ref.id.spelling.equals("length") ){
             if (ref.ref instanceof IdRef) {
                 idRefShortcut((IdRef) ref.ref);
                 Machine.emit(Prim.arraylen);
